@@ -4,7 +4,8 @@
 
 **Современный Android-браузер с интеллектуальным загрузчиком медиафайлов**
 
-<img width="1200" height="475" alt="Sway Browser" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
+<img width="1200" height="475" alt="Sway Browser" src="<img width="480" height="270" alt="image" src="https://github.com/user-attachments/assets/0bedb14c-de89-4c4d-ab9d-6101c2a2737f" />
+" />
 
 [📥 Скачать APK](#установка) • [🏗️ Архитектура](#архитектура) • [🛠️ Стек технологий](#технический-стек) • [🎯 Функционал](#основной-функционал)
 
