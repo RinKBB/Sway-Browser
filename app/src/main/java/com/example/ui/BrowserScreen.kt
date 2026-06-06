@@ -553,6 +553,17 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
         textInputUrl = currentUrl
     }
 
+    // Explicitly handle manual changes to the User-Agent mode inside settings
+    LaunchedEffect(userAgentMode) {
+        webViewRef?.let { webView ->
+            val activeUA = viewModel.getUserAgent()
+            if (webView.settings.userAgentString != activeUA && !currentUrl.contains("accounts.google.com") && !currentUrl.contains("google.com/accounts")) {
+                webView.settings.userAgentString = activeUA
+                webView.reload()
+            }
+        }
+    }
+
     // Auto crawling script helper
     val runCrawlerInWebView = {
         webViewRef?.let { wv ->
@@ -1219,6 +1230,12 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                         AndroidView(
                             factory = { ctx ->
                                 WebView(ctx).apply {
+                                    // Enable safe standard cookies and session management
+                                    try {
+                                        CookieManager.getInstance().setAcceptCookie(true)
+                                        CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+                                    } catch (e: Exception) {}
+
                                     settings.apply {
                                         javaScriptEnabled = true
                                         domStorageEnabled = true
@@ -1229,21 +1246,34 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                                         builtInZoomControls = true
                                         displayZoomControls = false
                                         cacheMode = WebSettings.LOAD_DEFAULT
+                                        
+                                        // Essential settings for modern auth/login multi-window support (e.g. Google/Facebook accounts Popup redirect flow)
+                                        setSupportMultipleWindows(true)
+                                        setJavaScriptCanOpenWindowsAutomatically(true)
+                                        
                                         userAgentString = viewModel.getUserAgent()
                                         if (isFastRenderingEnabled) {
                                             loadsImagesAutomatically = true
                                         }
                                     }
                                     
-                                    CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
-                                    if (isFastRenderingEnabled) {
-                                        setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
-                                    }
+                                    setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
 
                                     webViewClient = object : WebViewClient() {
                                         override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                                             super.onPageStarted(view, url, favicon)
-                                             viewModel.resetBlockedAdsCount()
+                                            
+                                            // Handle Google Sign-in User Agent Bypassing ("disallowed_useragent")
+                                            val currentUrlStr = url ?: ""
+                                            val isGoogleAuth = currentUrlStr.contains("accounts.google.com") || currentUrlStr.contains("google.com/accounts")
+                                            if (isGoogleAuth) {
+                                                // High compatibility mobile Safari user agent completely acceptable to Google Authentication
+                                                view?.settings?.userAgentString = "Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Mobile/15E148 Safari/604.1"
+                                            } else {
+                                                view?.settings?.userAgentString = viewModel.getUserAgent()
+                                            }
+
+                                            viewModel.resetBlockedAdsCount()
                                             url?.let {
                                                 viewModel.updateUrl(it)
                                             }
@@ -1254,7 +1284,7 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                                             super.onPageFinished(view, url)
                                             if (isFastRenderingEnabled) {
                                                 try {
-                                                    val fastCss = "img, iframe, video { content-visibility: auto; } body { text-rendering: optimizeSpeed; -webkit-font-smoothing: antialiased; }"
+                                                    val fastCss = "body { text-rendering: optimizeSpeed; -webkit-font-smoothing: antialiased; }"
                                                     val speedStyleStr = """
                                                         (function() {
                                                             const sStyle = document.createElement('style');
@@ -1516,6 +1546,51 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                                             super.onProgressChanged(view, newProgress)
                                             viewModel.updateWebProgress(newProgress)
                                         }
+
+                                        // Support nested popup windows for logging in via Google/OAuth accounts seamlessly inside the same WebView
+                                        override fun onCreateWindow(
+                                            view: WebView?,
+                                            isDialog: Boolean,
+                                            isUserGesture: Boolean,
+                                            resultMsg: android.os.Message?
+                                        ): Boolean {
+                                            val transport = resultMsg?.obj as? WebView.WebViewTransport
+                                            if (transport != null) {
+                                                val tempWebView = WebView(view?.context ?: return false).apply {
+                                                    webViewClient = object : WebViewClient() {
+                                                        override fun shouldOverrideUrlLoading(
+                                                            v: WebView?,
+                                                            request: android.webkit.WebResourceRequest?
+                                                        ): Boolean {
+                                                            val targetUrl = request?.url?.toString() ?: ""
+                                                            if (targetUrl.isNotEmpty()) {
+                                                                view?.loadUrl(targetUrl)
+                                                            }
+                                                            return true
+                                                        }
+                                                        
+                                                        @Deprecated("Deprecated in Java")
+                                                        override fun shouldOverrideUrlLoading(v: WebView?, targetUrl: String?): Boolean {
+                                                            if (targetUrl != null && targetUrl.isNotEmpty()) {
+                                                                view?.loadUrl(targetUrl)
+                                                            }
+                                                            return true
+                                                        }
+
+                                                        override fun onPageStarted(v: WebView?, targetUrl: String?, favicon: Bitmap?) {
+                                                            super.onPageStarted(v, targetUrl, favicon)
+                                                            if (targetUrl != null && targetUrl.isNotEmpty()) {
+                                                                view?.loadUrl(targetUrl)
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                transport.webView = tempWebView
+                                                resultMsg.sendToTarget()
+                                                return true
+                                            }
+                                            return false
+                                        }
                                     }
 
                                     // Handle native clicks on files and download links automatically inside WebView
@@ -1559,11 +1634,6 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                                 }
                             },
                             update = { webView ->
-                                val activeUA = viewModel.getUserAgent()
-                                if (webView.settings.userAgentString != activeUA) {
-                                    webView.settings.userAgentString = activeUA
-                                    webView.reload()
-                                }
                                 webView.settings.apply {
                                     if (isFastRenderingEnabled) {
                                         loadsImagesAutomatically = true
