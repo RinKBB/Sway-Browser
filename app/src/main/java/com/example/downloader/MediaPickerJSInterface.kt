@@ -9,20 +9,35 @@ class MediaPickerJSInterface(
     private val onSpaUrlChanged: ((url: String) -> Unit)? = null
 ) {
     @JavascriptInterface
-    fun onMediaDiscovered(jsonStr: String) {
+    fun onMediaDiscovered(jsonStr: String?) {
+        if (jsonStr == null) return
+        
+        // Ограничение размера входного JSON для предотвращения исчерпания памяти (DoS)
+        if (jsonStr.length > 5 * 1024 * 1024) { // Максимум 5 MB
+            Log.e("MediaPickerJSInterface", "Security Violation: JSON payload size exceeds limit!")
+            return
+        }
+        
         Log.d("MediaPickerJSInterface", "Discovered media results: ${jsonStr.take(500)}...")
         onDiscovered(jsonStr)
     }
 
     @JavascriptInterface
-    fun logError(message: String) {
-        Log.e("MediaPickerJSInterface", "JS Context Error: $message")
-        onError(message)
+    fun logError(message: String?) {
+        val safeMessage = message ?: "Unknown JS error"
+        Log.e("MediaPickerJSInterface", "JS Context Error: $safeMessage")
+        onError(safeMessage)
     }
 
     @JavascriptInterface
-    fun onSpaUrlChanged(url: String) {
+    fun onSpaUrlChanged(url: String?) {
+        if (url == null) return
+        if (url.length > 2048) { // Стандартный предел URL
+            Log.e("MediaPickerJSInterface", "Security Warning: SPA URL is too long")
+            return
+        }
         Log.d("MediaPickerJSInterface", "SPA URL Changed: $url")
         onSpaUrlChanged?.invoke(url)
     }
 }
+

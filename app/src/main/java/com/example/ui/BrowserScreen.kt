@@ -11,6 +11,8 @@ import android.webkit.WebViewClient
 import android.widget.MediaController
 import android.widget.VideoView
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -53,6 +55,10 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.draw.scale
+import kotlin.math.roundToInt
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -63,6 +69,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.ui.focus.onFocusChanged
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -460,6 +467,12 @@ private const val JS_CRAWLER_CODE = """
 })();
 """
 
+enum class FabTrajectoryMode {
+    SNAP_EDGE,
+    FREE_FLOAT,
+    ORBIT_PATH
+}
+
 @SuppressLint("SetJavaScriptEnabled")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -472,6 +485,12 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
     val rawMediaItems by viewModel.rawMediaItems.collectAsState()
     val canGoBack by viewModel.canGoBack.collectAsState()
     val canGoForward by viewModel.canGoForward.collectAsState()
+
+    // Draggable FAB with Trajectory configurations & animations
+    var fabTrajectoryMode by remember { mutableStateOf(FabTrajectoryMode.SNAP_EDGE) }
+    var isTrajectoryMenuExpanded by remember { mutableStateOf(false) }
+    val dragOffsetX = remember { Animatable(0f) }
+    val dragOffsetY = remember { Animatable(0f) }
 
     val selectedIds by viewModel.selectedIds.collectAsState()
     val filteredMedia by viewModel.filteredAndSortedMedia.collectAsState()
@@ -493,6 +512,49 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
 
     var textInputUrl by remember { mutableStateOf(currentUrl) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
+
+    // Предотвращение утечки памяти: отгрузка WebView при уничтожении Compose
+    DisposableEffect(Unit) {
+        onDispose {
+            webViewRef?.let { wv ->
+                try {
+                    wv.stopLoading()
+                    wv.clearHistory()
+                    wv.removeAllViews()
+                    wv.destroy()
+                } catch (e: Exception) {}
+            }
+            webViewRef = null
+        }
+    }
+
+    // Лаунчер для запроса прав на запись на устройствах с Android 9 и ниже (SDK <= 28)
+    val writePermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            android.widget.Toast.makeText(localContext, "Разрешение получено. Повторите загрузку.", android.widget.Toast.LENGTH_SHORT).show()
+        } else {
+            android.widget.Toast.makeText(localContext, "Ошибка: требуется разрешение на запись файлов", android.widget.Toast.LENGTH_LONG).show()
+        }
+    }
+
+    val safelyTriggerDownload = { onGranted: () -> Unit ->
+        if (android.os.Build.VERSION.SDK_INT <= 28) {
+            val permissionState = androidx.core.content.ContextCompat.checkSelfPermission(
+                localContext,
+                android.Manifest.permission.WRITE_EXTERNAL_STORAGE
+            )
+            if (permissionState == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                onGranted()
+            } else {
+                writePermissionLauncher.launch(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            }
+        } else {
+            onGranted()
+        }
+    }
+
     var isMediaPanelVisible by remember { mutableStateOf(false) }
     var previewMediaItem by remember { mutableStateOf<MediaItem?>(null) }
     var showCustomZipNameDialog by remember { mutableStateOf(false) }
@@ -813,7 +875,9 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
 
                     Button(
                         onClick = {
-                            viewModel.downloadSelectedFilesIndividually()
+                            safelyTriggerDownload {
+                                viewModel.downloadSelectedFilesIndividually()
+                            }
                         },
                         enabled = selectedIds.isNotEmpty(),
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
@@ -832,7 +896,9 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
 
                 Button(
                     onClick = {
-                        viewModel.downloadAllAsZip()
+                        safelyTriggerDownload {
+                            viewModel.downloadAllAsZip()
+                        }
                     },
                     enabled = filteredMedia.isNotEmpty(),
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary),
@@ -1131,42 +1197,7 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                 }
             }
         },
-        floatingActionButton = {
-            if (currentTabItem == 0 && isBrowsing && !isMediaPanelVisible) {
-                BadgedBox(
-                    badge = {
-                        if (rawMediaItems.isNotEmpty()) {
-                            Badge(
-                                modifier = Modifier.offset(x = (-4).dp, y = 4.dp),
-                                containerColor = MaterialTheme.colorScheme.error,
-                                contentColor = Color.White
-                            ) {
-                                Text(
-                                    text = rawMediaItems.size.toString(),
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 11.sp
-                                )
-                            }
-                        }
-                    },
-                    modifier = Modifier.padding(16.dp)
-                ) {
-                    FloatingActionButton(
-                        onClick = {
-                            // Fetch again to ensure newly lazy loaded images are crawled
-                            runCrawlerInWebView()
-                            isMediaPanelVisible = true
-                        },
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier.testTag("floating_crawler_toggle")
-                    ) {
-                        Icon(Icons.Default.Download, contentDescription = "Скачать медиа", modifier = Modifier.size(28.dp))
-                    }
-                }
-            }
-        },
-        floatingActionButtonPosition = FabPosition.End,
+        floatingActionButton = {},
         bottomBar = {
             NavigationBar(
                 containerColor = MaterialTheme.colorScheme.surface,
@@ -1218,6 +1249,8 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                 .padding(innerPadding)
         ) {
             val isWideScreen = maxWidth >= 800.dp
+            val browserScreenWidth = maxWidth
+            val browserScreenHeight = maxHeight
 
             if (currentTabItem == 0 && isBrowsing) {
                 Row(modifier = Modifier.fillMaxSize()) {
@@ -1240,7 +1273,7 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                                         javaScriptEnabled = true
                                         domStorageEnabled = true
                                         databaseEnabled = true
-                                        mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                                        mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
                                         useWideViewPort = true
                                         loadWithOverviewMode = true
                                         builtInZoomControls = true
@@ -1608,7 +1641,9 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                                             tagName = "DIRECT_WEB_DOWNLOAD",
                                             sizeBytes = if (contentLength > 0) contentLength else -1L
                                         )
-                                        viewModel.downloadSingleMediaFile(item)
+                                        safelyTriggerDownload {
+                                            viewModel.downloadSingleMediaFile(item)
+                                        }
                                     }
 
                                     // Connect Javascript Bridge
@@ -1650,6 +1685,263 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                             },
                             modifier = Modifier.fillMaxSize()
                         )
+
+                        // Custom Draggable & Snapping Floating Action Button with Animated Trajectory Settings!
+                        if (!isMediaPanelVisible) {
+                            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                                val density = LocalDensity.current
+                                val fabSizePx = with(density) { 56.dp.toPx() }
+                                
+                                // Get the Box constraints measurements in pixels safely
+                                val screenWidthPx = with(density) { maxWidth.toPx() }
+                                val screenHeightPx = with(density) { maxHeight.toPx() }
+
+                                Box(modifier = Modifier.fillMaxSize()) {
+                                    // Pulsing scale animation when rawMediaItems updates
+                                    val count = rawMediaItems.size
+                                    var lastCount by remember { mutableStateOf(0) }
+                                    val scaleAnim = remember { Animatable(1f) }
+                                    
+                                    LaunchedEffect(count) {
+                                        if (count > lastCount) {
+                                            scaleAnim.animateTo(1.25f, animationSpec = spring(dampingRatio = Spring.DampingRatioHighBouncy, stiffness = Spring.StiffnessMedium))
+                                            scaleAnim.animateTo(1.0f, animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow))
+                                        }
+                                        lastCount = count
+                                    }
+                                    
+                                    // Orbital loop trajectory animation when ORBIT_PATH mode is active
+                                    val infiniteTransition = rememberInfiniteTransition(label = "orbital_movement")
+                                    val orbitOffsetX by infiniteTransition.animateFloat(
+                                        initialValue = -12f,
+                                        targetValue = 12f,
+                                        animationSpec = infiniteRepeatable(
+                                            animation = tween(1500, easing = FastOutSlowInEasing),
+                                            repeatMode = RepeatMode.Reverse
+                                        ),
+                                        label = "orbitX"
+                                    )
+                                    val orbitOffsetY by infiniteTransition.animateFloat(
+                                        initialValue = -12f,
+                                        targetValue = 12f,
+                                        animationSpec = infiniteRepeatable(
+                                            animation = tween(1900, easing = FastOutSlowInEasing),
+                                            repeatMode = RepeatMode.Reverse
+                                        ),
+                                        label = "orbitY"
+                                    )
+                                    
+                                    val orbitX = if (fabTrajectoryMode == FabTrajectoryMode.ORBIT_PATH) orbitOffsetX else 0f
+                                    val orbitY = if (fabTrajectoryMode == FabTrajectoryMode.ORBIT_PATH) orbitOffsetY else 0f
+                                    
+                                    val finalOffsetX = dragOffsetX.value + orbitX
+                                    val finalOffsetY = dragOffsetY.value + orbitY
+                                    
+                                    Column(
+                                        horizontalAlignment = Alignment.End,
+                                        modifier = Modifier
+                                            .align(Alignment.BottomEnd)
+                                            .padding(bottom = 24.dp, end = 24.dp, start = 24.dp, top = 24.dp) // Generous margin for padding bounds and safety
+                                            .offset {
+                                                IntOffset(
+                                                    finalOffsetX.roundToInt(),
+                                                    finalOffsetY.roundToInt()
+                                                )
+                                            }
+                                    ) {
+                                        // Floating configuration bar for selecting the trajectory mode
+                                        AnimatedVisibility(
+                                            visible = isTrajectoryMenuExpanded,
+                                            enter = fadeIn() + expandVertically(expandFrom = Alignment.Bottom),
+                                            exit = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Bottom)
+                                        ) {
+                                            Card(
+                                                shape = RoundedCornerShape(20.dp),
+                                                colors = CardDefaults.cardColors(
+                                                    containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(12.dp)
+                                                ),
+                                                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+                                                modifier = Modifier.padding(bottom = 12.dp)
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    // Mode: Magnet (Snap to Edges)
+                                                    TextButton(
+                                                        onClick = {
+                                                            fabTrajectoryMode = FabTrajectoryMode.SNAP_EDGE
+                                                            isTrajectoryMenuExpanded = false
+                                                            // Trigger instant snap calculation
+                                                            val halfScreen = -(screenWidthPx - fabSizePx) / 2f
+                                                            val targetX = if (dragOffsetX.value < halfScreen) {
+                                                                -(screenWidthPx - fabSizePx - with(density) { 48.dp.toPx() })
+                                                            } else {
+                                                                0f
+                                                            }
+                                                            coroutineScope.launch {
+                                                                dragOffsetX.animateTo(targetX, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow))
+                                                            }
+                                                            android.widget.Toast.makeText(localContext, "Выбрано: Магнитная траектория", android.widget.Toast.LENGTH_SHORT).show()
+                                                        },
+                                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
+                                                        colors = ButtonDefaults.textButtonColors(
+                                                            contentColor = if (fabTrajectoryMode == FabTrajectoryMode.SNAP_EDGE) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                                        )
+                                                    ) {
+                                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                            Icon(Icons.Default.KeyboardDoubleArrowLeft, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                            Text("Магнит", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                        }
+                                                    }
+                                                    
+                                                    // Mode: Free Float
+                                                    TextButton(
+                                                        onClick = {
+                                                            fabTrajectoryMode = FabTrajectoryMode.FREE_FLOAT
+                                                            isTrajectoryMenuExpanded = false
+                                                            android.widget.Toast.makeText(localContext, "Выбрано: Свободное парение", android.widget.Toast.LENGTH_SHORT).show()
+                                                        },
+                                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
+                                                        colors = ButtonDefaults.textButtonColors(
+                                                            contentColor = if (fabTrajectoryMode == FabTrajectoryMode.FREE_FLOAT) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                                        )
+                                                    ) {
+                                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                            Icon(Icons.Default.TouchApp, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                            Text("Оставить тут", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                        }
+                                                    }
+                                                    
+                                                    // Mode: Orbit Path (Interactive Floating Cosmos Mode)
+                                                    TextButton(
+                                                        onClick = {
+                                                            fabTrajectoryMode = FabTrajectoryMode.ORBIT_PATH
+                                                            isTrajectoryMenuExpanded = false
+                                                            android.widget.Toast.makeText(localContext, "Выбрано: Космическая орбита 🪐", android.widget.Toast.LENGTH_SHORT).show()
+                                                        },
+                                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
+                                                        colors = ButtonDefaults.textButtonColors(
+                                                            contentColor = if (fabTrajectoryMode == FabTrajectoryMode.ORBIT_PATH) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                                        )
+                                                    ) {
+                                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                            Icon(Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                            Text("Парение", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        
+                                        // Main button cluster including Badge and settings trigger
+                                        Box(
+                                            contentAlignment = Alignment.TopStart,
+                                            modifier = Modifier.size(72.dp) // Size that accommodates the FAB and its tune gear badge nicely
+                                        ) {
+                                            BadgedBox(
+                                                badge = {
+                                                    if (rawMediaItems.isNotEmpty()) {
+                                                        Badge(
+                                                            modifier = Modifier.offset(x = (-4).dp, y = 4.dp),
+                                                            containerColor = MaterialTheme.colorScheme.error,
+                                                            contentColor = Color.White
+                                                        ) {
+                                                            Text(
+                                                                text = rawMediaItems.size.toString(),
+                                                                fontWeight = FontWeight.Bold,
+                                                                fontSize = 11.sp
+                                                            )
+                                                        }
+                                                    }
+                                                },
+                                                modifier = Modifier
+                                                    .align(Alignment.BottomEnd)
+                                                    .scale(scaleAnim.value)
+                                                    .pointerInput(fabTrajectoryMode) {
+                                                        detectDragGestures(
+                                                            onDragStart = { _ ->
+                                                                coroutineScope.launch {
+                                                                    dragOffsetX.stop()
+                                                                    dragOffsetY.stop()
+                                                                }
+                                                            },
+                                                            onDrag = { change, dragAmount ->
+                                                                change.consume()
+                                                                // Safety margins: exactly 48dp so it fits beautifully, leaving 16dp pad
+                                                                val limitX = -(screenWidthPx - fabSizePx - with(density) { 48.dp.toPx() })
+                                                                val limitY = -(screenHeightPx - fabSizePx - with(density) { 48.dp.toPx() })
+                                                                
+                                                                val newX = (dragOffsetX.value + dragAmount.x).coerceIn(limitX, 0f)
+                                                                val newY = (dragOffsetY.value + dragAmount.y).coerceIn(limitY, 0f)
+                                                                
+                                                                coroutineScope.launch {
+                                                                    dragOffsetX.snapTo(newX)
+                                                                    dragOffsetY.snapTo(newY)
+                                                                }
+                                                            },
+                                                            onDragEnd = {
+                                                                // Handle snapping behaviour if mode requires it
+                                                                if (fabTrajectoryMode == FabTrajectoryMode.SNAP_EDGE) {
+                                                                    val limitX = -(screenWidthPx - fabSizePx - with(density) { 48.dp.toPx() })
+                                                                    val halfScreen = limitX / 2f
+                                                                    val targetX = if (dragOffsetX.value < halfScreen) limitX else 0f
+                                                                    coroutineScope.launch {
+                                                                        dragOffsetX.animateTo(
+                                                                            targetX,
+                                                                            spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow)
+                                                                        )
+                                                                    }
+                                                                }
+                                                            }
+                                                        )
+                                                    }
+                                            ) {
+                                                FloatingActionButton(
+                                                    onClick = {
+                                                        // Fetch again to ensure newly lazy loaded images are crawled
+                                                        runCrawlerInWebView()
+                                                        isMediaPanelVisible = true
+                                                    },
+                                                    containerColor = MaterialTheme.colorScheme.primary,
+                                                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                                                    modifier = Modifier.testTag("floating_crawler_toggle")
+                                                ) {
+                                                    Icon(
+                                                        Icons.Default.Download, 
+                                                        contentDescription = "Скачать медиа", 
+                                                        modifier = Modifier.size(28.dp)
+                                                    )
+                                                }
+                                            }
+                                            
+                                            // Tiny settings gear badge overlapping the FAB to quickly trigger movement trajectory customization
+                                            IconButton(
+                                                onClick = { 
+                                                    isTrajectoryMenuExpanded = !isTrajectoryMenuExpanded 
+                                                    if (isTrajectoryMenuExpanded) {
+                                                        android.widget.Toast.makeText(localContext, "Вы можете перетаскивать эту кнопку в любое место экрана!", android.widget.Toast.LENGTH_SHORT).show()
+                                                    }
+                                                },
+                                                modifier = Modifier
+                                                    .size(26.dp)
+                                                    .background(MaterialTheme.colorScheme.tertiaryContainer, shape = CircleShape)
+                                                    .align(Alignment.TopStart)
+                                                    .offset(x = 4.dp, y = 4.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Settings,
+                                                    contentDescription = "Траектория",
+                                                    tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     // If wide screen and media panel is visible, show indeed as a side-by-side split screen supporting panel!
@@ -2420,7 +2712,9 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                                                     filename = cleanFilename,
                                                     tagName = "img"
                                                 )
-                                                viewModel.downloadSingleMediaFile(testMedia)
+                                                safelyTriggerDownload {
+                                                    viewModel.downloadSingleMediaFile(testMedia)
+                                                }
                                             }
                                         )
                                     }
@@ -3543,7 +3837,8 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                 }
             }
         }
-    }
+
+}
 
     // Modal progress bar mapping active states during operations
     if (downloadProgress != DownloadProgressState.Idle) {
@@ -3682,7 +3977,9 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                 Button(
                     onClick = {
                         showCustomZipNameDialog = false
-                        viewModel.downloadSelectedAsZip(customZipName)
+                        safelyTriggerDownload {
+                            viewModel.downloadSelectedAsZip(customZipName)
+                        }
                     }
                 ) {
                     Text("Скачать")
@@ -3755,7 +4052,9 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                                 onClick = {
                                     previewMediaItem = null
                                     viewModel.toggleSelection(media.id)
-                                    viewModel.downloadSelectedFilesIndividually()
+                                    safelyTriggerDownload {
+                                        viewModel.downloadSelectedFilesIndividually()
+                                    }
                                 },
                                 modifier = Modifier.weight(1f),
                                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)

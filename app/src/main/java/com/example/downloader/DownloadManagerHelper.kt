@@ -34,6 +34,10 @@ class DownloadManagerHelper(private val context: Context) {
      * Query size of a remote asset using HTTP HEAD or GET (if HEAD is forbidden)
      */
     suspend fun queryContentSize(url: String, userAgent: String? = null, referer: String? = null): Long = withContext(Dispatchers.IO) {
+        if (!url.startsWith("http://", ignoreCase = true) && !url.startsWith("https://", ignoreCase = true)) {
+            Log.e("DownloadManagerHelper", "Security Violation: Insecure or unsupported protocol for size query: $url")
+            return@withContext -1L
+        }
         try {
             val builder = Request.Builder().url(url).head()
             if (!userAgent.isNullOrEmpty()) {
@@ -196,6 +200,10 @@ class DownloadManagerHelper(private val context: Context) {
         referer: String? = null,
         onProgress: (currentBytes: Long, totalBytes: Long) -> Unit
     ): Uri? = withContext(Dispatchers.IO) {
+        if (!item.url.startsWith("http://", ignoreCase = true) && !item.url.startsWith("https://", ignoreCase = true)) {
+            Log.e("DownloadManagerHelper", "Security Violation: Insecure or unsupported protocol for file download: ${item.url}")
+            return@withContext null
+        }
         try {
             val builder = Request.Builder().url(item.url).get()
             if (!userAgent.isNullOrEmpty()) {
@@ -277,6 +285,10 @@ class DownloadManagerHelper(private val context: Context) {
                 ZipOutputStream(outputStream).use { zipOut ->
                     items.forEachIndexed { index, mediaItem ->
                         try {
+                            if (!mediaItem.url.startsWith("http://", ignoreCase = true) && !mediaItem.url.startsWith("https://", ignoreCase = true)) {
+                                Log.e("DownloadManagerHelper", "Security Violation: Insecure or unsupported protocol for ZIP item: ${mediaItem.url}")
+                                return@forEachIndexed
+                            }
                             onItemProgress(index, totalCount, 0.0f, mediaItem.filename)
                             
                             val builder = Request.Builder().url(mediaItem.url).get()
