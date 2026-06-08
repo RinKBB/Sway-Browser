@@ -387,6 +387,46 @@ private const val JS_CRAWLER_CODE = """
                     if (matchVid) addMedia(href, "video", matchVid[1], "A_VID", null);
                 }
             }
+
+            // 6. JSON-LD scripts (Pinterest, Instagram, and generic media schemas)
+            var scripts = document.querySelectorAll('script[type="application/ld+json"]');
+            for (var i = 0; i < scripts.length; i++) {
+                try {
+                    var json = JSON.parse(scripts[i].innerText);
+                    function parseJsonLD(obj) {
+                        if (!obj) return;
+                        if (typeof obj === 'object') {
+                            if (obj.contentUrl && typeof obj.contentUrl === 'string') {
+                                var isVid = obj['@type'] === 'VideoObject' || obj.contentUrl.match(/\.(mp4|m3u8|webm)/i);
+                                var ext = isVid ? "mp4" : "jpg";
+                                addMedia(obj.contentUrl, isVid ? "video" : "image", ext, "JSON_LD_CONTENT", null);
+                            }
+                            if (obj.embedUrl && typeof obj.embedUrl === 'string') {
+                                addMedia(obj.embedUrl, "video", "mp4", "JSON_LD_EMBED", null);
+                            }
+                            if (obj.video && typeof obj.video === 'object') {
+                                parseJsonLD(obj.video);
+                            }
+                            if (obj.image && typeof obj.image === 'object') {
+                                parseJsonLD(obj.image);
+                            }
+                            if (obj.thumbnailUrl && typeof obj.thumbnailUrl === 'string') {
+                                addMedia(obj.thumbnailUrl, "image", "jpg", "JSON_LD_THUMB", null);
+                            }
+                            for (var key in obj) {
+                                if (obj.hasOwnProperty(key)) {
+                                    parseJsonLD(obj[key]);
+                                }
+                            }
+                        } else if (Array.isArray(obj)) {
+                            for (var k = 0; k < obj.length; k++) {
+                                parseJsonLD(obj[k]);
+                            }
+                        }
+                    }
+                    parseJsonLD(json);
+                } catch(e){}
+            }
             
             if (items.length > 0 && window.AndroidMediaDownloader) {
                 window.AndroidMediaDownloader.onMediaDiscovered(JSON.stringify(items));
@@ -619,7 +659,7 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
     LaunchedEffect(userAgentMode) {
         webViewRef?.let { webView ->
             val activeUA = viewModel.getUserAgent()
-            if (webView.settings.userAgentString != activeUA && !currentUrl.contains("accounts.google.com") && !currentUrl.contains("google.com/accounts")) {
+            if (webView.settings.userAgentString != activeUA) {
                 webView.settings.userAgentString = activeUA
                 webView.reload()
             }
@@ -1281,7 +1321,7 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                                         cacheMode = WebSettings.LOAD_DEFAULT
                                         
                                         // Essential settings for modern auth/login multi-window support (e.g. Google/Facebook accounts Popup redirect flow)
-                                        setSupportMultipleWindows(true)
+                                        setSupportMultipleWindows(false)
                                         setJavaScriptCanOpenWindowsAutomatically(true)
                                         
                                         userAgentString = viewModel.getUserAgent()
@@ -1298,10 +1338,10 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                                             
                                             // Handle Google Sign-in User Agent Bypassing ("disallowed_useragent")
                                             val currentUrlStr = url ?: ""
-                                            val isGoogleAuth = currentUrlStr.contains("accounts.google.com") || currentUrlStr.contains("google.com/accounts")
+                                            val isGoogleAuth = false
                                             if (isGoogleAuth) {
                                                 // High compatibility mobile Safari user agent completely acceptable to Google Authentication
-                                                view?.settings?.userAgentString = "Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Mobile/15E148 Safari/604.1"
+                                                view?.settings?.userAgentString = viewModel.getUserAgent()
                                             } else {
                                                 view?.settings?.userAgentString = viewModel.getUserAgent()
                                             }

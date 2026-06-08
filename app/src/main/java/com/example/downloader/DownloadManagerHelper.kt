@@ -30,6 +30,63 @@ class DownloadManagerHelper(private val context: Context) {
         .followSslRedirects(true)
         .build()
 
+    private fun checkUrlExists(url: String, userAgent: String?, referer: String?): Boolean {
+        try {
+            val builder = Request.Builder().url(url).head()
+            if (!userAgent.isNullOrEmpty()) builder.addHeader("User-Agent", userAgent)
+            if (!referer.isNullOrEmpty()) builder.addHeader("Referer", referer)
+            client.newCall(builder.build()).execute().use { response ->
+                return response.isSuccessful
+            }
+        } catch (e: Exception) {
+            return false
+        }
+    }
+
+    private fun resolveUrlWithFallback(url: String, userAgent: String?, referer: String?): String {
+        // Pinterest Video HLS (.m3u8) to MP4 upgrade
+        if (url.contains("v1.pinimg.com") || url.contains("pinimg.com/videos")) {
+            if (url.contains(".m3u8") || url.contains("/hls/")) {
+                val base = url.replace("/hls/", "/720p/").replace(".m3u8", ".mp4")
+                if (checkUrlExists(base, userAgent, referer)) return base
+                val expOption = url.replace("/hls/", "/exp/").replace(".m3u8", ".mp4")
+                if (checkUrlExists(expOption, userAgent, referer)) return expOption
+                val v2Option = url.replace("/hls/", "/v2/").replace(".m3u8", ".mp4")
+                if (checkUrlExists(v2Option, userAgent, referer)) return v2Option
+            }
+        }
+        // Pinterest Photo original quality fallback & high-resolution upgrade
+        if (url.contains("pinimg.com")) {
+            var targetUrl = url
+            val resPatterns = listOf("/736x/", "/564x/", "/236x/", "/474x/", "/170x/")
+            for (pattern in resPatterns) {
+                if (url.contains(pattern)) {
+                    targetUrl = url.replace(pattern, "/originals/")
+                    break
+                }
+            }
+            if (targetUrl.contains("/originals/")) {
+                if (checkUrlExists(targetUrl, userAgent, referer)) {
+                    return targetUrl
+                }
+                val baseWithoutExt = targetUrl.substringBeforeLast(".")
+                val originalExt = targetUrl.substringAfterLast(".", "")
+                val fallbackExts = listOf("png", "gif", "jpeg", "jpg").filter { it != originalExt }
+                for (ext in fallbackExts) {
+                    val candidate = "$baseWithoutExt.$ext"
+                    if (checkUrlExists(candidate, userAgent, referer)) {
+                        return candidate
+                    }
+                }
+                // Fallback back to original URL if originals completely 404
+                if (checkUrlExists(url, userAgent, referer)) {
+                    return url
+                }
+            }
+        }
+        return url
+    }
+
     /**
      * Query size of a remote asset using HTTP HEAD or GET (if HEAD is forbidden)
      */
@@ -39,7 +96,8 @@ class DownloadManagerHelper(private val context: Context) {
             return@withContext -1L
         }
         try {
-            val builder = Request.Builder().url(url).head()
+            val resolvedUrl = resolveUrlWithFallback(url, userAgent, referer)
+            val builder = Request.Builder().url(resolvedUrl).head()
             if (!userAgent.isNullOrEmpty()) {
                 builder.addHeader("User-Agent", userAgent)
             }
@@ -57,7 +115,7 @@ class DownloadManagerHelper(private val context: Context) {
             response.close()
 
             // If HEAD fails or gives no length, try a brief GET range request or simple GET and fetch headers
-            val getBuilder = Request.Builder().url(url).get()
+            val getBuilder = Request.Builder().url(resolvedUrl).get()
                 .addHeader("Range", "bytes=0-0")
             if (!userAgent.isNullOrEmpty()) {
                 getBuilder.addHeader("User-Agent", userAgent)
@@ -205,7 +263,17 @@ class DownloadManagerHelper(private val context: Context) {
             return@withContext null
         }
         try {
-            val builder = Request.Builder().url(item.url).get()
+            val resolvedUrl = resolveUrlWithFallback(item.url, userAgent, referer)
+            val resolvedExt = resolvedUrl.substringAfterLast(".", "")
+            val finalFilename = if (resolvedExt.isNotEmpty() && resolvedExt != item.ext) {
+                val baseName = item.filename.substringBeforeLast(".")
+                "$baseName.$resolvedExt"
+            } else {
+                item.filename
+            }
+            val finalItem = item.copy(url = resolvedUrl, filename = finalFilename, ext = resolvedExt)
+
+            val builder = Request.Builder().url(finalItem.url).get()
             if (!userAgent.isNullOrEmpty()) {
                 builder.addHeader("User-Agent", userAgent)
             }
@@ -225,12 +293,12 @@ class DownloadManagerHelper(private val context: Context) {
                 return@withContext null
             }
             
-            val totalBytes = if (item.sizeBytes > 0) item.sizeBytes else body.contentLength()
+            val totalBytes = if (finalItem.sizeBytes > 0) finalItem.sizeBytes else body.contentLength()
             
             // Sanitize MIME type (remove parameters like charset, and fallback to ext-based MIME type if generic)
             var mimeType = response.header("Content-Type")?.substringBefore(";")?.trim() ?: ""
             if (mimeType.contains("html", ignoreCase = true) || mimeType.contains("xml", ignoreCase = true)) {
-                if (item.type == "image" || item.type == "video") {
+                if (finalItem.type == "image" || finalItem.type == "video") {
                     Log.e("DownloadManagerHelper", "Aborting download: Expected media, but server returned HTML ($mimeType)")
                     response.close()
                     return@withContext null
@@ -238,13 +306,13 @@ class DownloadManagerHelper(private val context: Context) {
             }
             
             if (mimeType.isBlank() || mimeType == "application/octet-stream" || mimeType == "binary/octet-stream") {
-                mimeType = getMimeTypeFromExt(item.ext)
+                mimeType = getMimeTypeFromExt(finalItem.ext)
             }
             
             var savedUri: Uri? = null
             
             body.byteStream().use { inputStream ->
-                savedUri = saveToPublicDownloads(item.filename, mimeType) { outputStream ->
+                savedUri = saveToPublicDownloads(finalItem.filename, mimeType) { outputStream ->
                     val buffer = ByteArray(8192)
                     var bytesRead: Int
                     var totalRead = 0L
@@ -289,9 +357,20 @@ class DownloadManagerHelper(private val context: Context) {
                                 Log.e("DownloadManagerHelper", "Security Violation: Insecure or unsupported protocol for ZIP item: ${mediaItem.url}")
                                 return@forEachIndexed
                             }
-                            onItemProgress(index, totalCount, 0.0f, mediaItem.filename)
                             
-                            val builder = Request.Builder().url(mediaItem.url).get()
+                            val resolvedUrl = resolveUrlWithFallback(mediaItem.url, userAgent, referer)
+                            val resolvedExt = resolvedUrl.substringAfterLast(".", "")
+                            val finalFilename = if (resolvedExt.isNotEmpty() && resolvedExt != mediaItem.ext) {
+                                val baseName = mediaItem.filename.substringBeforeLast(".")
+                                "$baseName.$resolvedExt"
+                            } else {
+                                mediaItem.filename
+                            }
+                            val finalItem = mediaItem.copy(url = resolvedUrl, filename = finalFilename, ext = resolvedExt)
+                            
+                            onItemProgress(index, totalCount, 0.0f, finalItem.filename)
+                            
+                            val builder = Request.Builder().url(finalItem.url).get()
                             if (!userAgent.isNullOrEmpty()) {
                                 builder.addHeader("User-Agent", userAgent)
                             }
@@ -305,12 +384,12 @@ class DownloadManagerHelper(private val context: Context) {
                                 val rawBytes = body.bytes()
                                 response.close()
                                 
-                                val cleanedZipName = "${index}_${mediaItem.filename.replace(Regex("[^a-zA-Z0-9._-]"), "_")}"
+                                val cleanedZipName = "${index}_${finalItem.filename.replace(Regex("[^a-zA-Z0-9._-]"), "_")}"
                                 val entry = ZipEntry(cleanedZipName)
                                 zipOut.putNextEntry(entry)
                                 
                                 zipOut.write(rawBytes)
-                                onItemProgress(index, totalCount, 1.0f, mediaItem.filename)
+                                onItemProgress(index, totalCount, 1.0f, finalItem.filename)
                                 zipOut.closeEntry()
                             } else {
                                 response.close()
