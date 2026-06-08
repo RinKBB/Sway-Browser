@@ -507,6 +507,198 @@ private const val JS_CRAWLER_CODE = """
 })();
 """
 
+private const val YT_ENHANCER_JS = """
+(function() {
+    try {
+        Object.defineProperty(document, 'hidden', { get: function() { return false; }, configurable: true });
+        Object.defineProperty(document, 'visibilityState', { get: function() { return 'visible'; }, configurable: true });
+        Object.defineProperty(document, 'webkitHidden', { get: function() { return false; }, configurable: true });
+        Object.defineProperty(document, 'webkitVisibilityState', { get: function() { return 'visible'; }, configurable: true });
+        Object.defineProperty(document, 'hasFocus', { value: function() { return true; }, writable: true, configurable: true });
+    } catch(e) {}
+
+    const originalAddEventListener = EventTarget.prototype.addEventListener;
+    EventTarget.prototype.addEventListener = function(type, listener, options) {
+        if (type === 'visibilitychange' || type === 'webkitvisibilitychange' || type === 'blur' || type === 'pagehide') {
+            return;
+        }
+        return originalAddEventListener.call(this, type, listener, options);
+    };
+
+    let lastInteraction = 0;
+    const regInteraction = () => { lastInteraction = Date.now(); };
+    document.addEventListener('touchstart', regInteraction, true);
+    document.addEventListener('click', regInteraction, true);
+    document.addEventListener('mousedown', regInteraction, true);
+    document.addEventListener('keydown', regInteraction, true);
+
+    let isUserPaused = false;
+    try {
+        const originalPlay = HTMLVideoElement.prototype.play;
+        const originalPause = HTMLVideoElement.prototype.pause;
+
+        HTMLVideoElement.prototype.pause = function() {
+            const timeDiff = Date.now() - lastInteraction;
+            if (timeDiff > 1200 && (document.hidden || !document.hasFocus())) {
+                return Promise.resolve();
+            }
+            isUserPaused = true;
+            return originalPause.apply(this, arguments);
+        };
+
+        HTMLVideoElement.prototype.play = function() {
+            isUserPaused = false;
+            return originalPlay.apply(this, arguments);
+        };
+    } catch(e) {}
+
+    setInterval(() => {
+        if (!isUserPaused && (document.hidden || !document.hasFocus())) {
+            const videos = document.querySelectorAll('video');
+            videos.forEach(v => {
+                if (v.paused && !v.ended) {
+                    v.play().catch(() => {});
+                }
+            });
+        }
+    }, 1000);
+
+    if (window.location.hostname.includes('youtube.com') || window.location.hostname.includes('youtu.be')) {
+        const yStyle = document.createElement('style');
+        yStyle.id = 'sway-yt-ad-blocker-style';
+        yStyle.innerHTML = ' .ytp-ad-overlay-container, .ytp-ad-message-container, .ytp-ad-action-button, .ytp-ad-image-overlay, ytd-companion-ad-renderer, ytd-display-ad-renderer, ytd-compact-promoted-video-renderer, ytm-promoted-sparkles-web-renderer { display: none !important; visibility: hidden !important; height: 0 !important; opacity: 0 !important; pointer-events: none !important; } ';
+        document.head.appendChild(yStyle);
+
+        function showSwayMsg(text, duration = 3000) {
+            let container = document.getElementById('sway-toast-container');
+            if (!container) {
+                container = document.createElement('div');
+                container.id = 'sway-toast-container';
+                container.style.cssText = 'position:fixed; bottom: 85px; left: 50%; transform: translateX(-50%); z-index: 100000; display: flex; flex-direction: column; gap: 8px; font-family: Roboto, sans-serif; pointer-events: none;';
+                document.body.appendChild(container);
+            }
+            const toast = document.createElement('div');
+            toast.style.cssText = 'background: rgba(26, 26, 26, 0.9); color: #fff; padding: 10px 16px; border-radius: 20px; font-size: 13px; font-weight: 500; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 4px 12px rgba(0,0,0,0.3); animation: fadein 0.3s, fadeout 0.3s ' + (duration - 300) + 'ms forwards; white-space: nowrap; transition: all 0.3s;';
+            toast.innerText = text;
+            
+            if (!document.getElementById('sway-toast-keyframes')) {
+                const kf = document.createElement('style');
+                kf.id = 'sway-toast-keyframes';
+                kf.innerHTML = '@keyframes fadein { from { bottom: 0; opacity: 0; } to { bottom: 30px; opacity: 1; } } @keyframes fadeout { from { opacity: 1; } to { opacity: 0; } }';
+                document.head.appendChild(kf);
+            }
+            
+            container.appendChild(toast);
+            setTimeout(() => { toast.remove(); }, duration);
+        }
+
+        let lastVideoId = '';
+        let sponsorSegments = [];
+
+        function getVideoId() {
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.has('v')) return urlParams.get('v');
+            const pathParts = window.location.pathname.split('/');
+            for (let i = 0; i < pathParts.length; i++) {
+                if (pathParts[i] === 'v' || pathParts[i] === 'embed' || pathParts[i] === 'shorts') {
+                    if (pathParts[i+1]) return pathParts[i+1];
+                }
+            }
+            const player = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
+            if (player && typeof player.getVideoData === 'function') {
+                const data = player.getVideoData();
+                if (data && data.video_id) return data.video_id;
+            }
+            return null;
+        }
+
+        function loadSponsorSegments(vid) {
+            if (!vid) return;
+            sponsorSegments = [];
+            const categories = '["sponsor","selfpromo","interaction","intro","outro","preview"]';
+            const sUrl = "https://sponsor.ajay.app/api/skipSegments?videoID=" + vid + "&categories=" + encodeURIComponent(categories);
+            
+            fetch(sUrl)
+                .then(res => {
+                    if (!res.ok) throw new Error();
+                    return res.json();
+                })
+                .then(data => {
+                    if (Array.isArray(data)) {
+                        sponsorSegments = data.map(item => item.segment);
+                        if (sponsorSegments.length > 0) {
+                            showSwayMsg("SponsorBlock: найдено " + sponsorSegments.length + " сегментов для пропуска");
+                        }
+                    }
+                })
+                .catch(() => {});
+        }
+
+        setInterval(() => {
+            const currentVid = getVideoId();
+            if (currentVid && currentVid !== lastVideoId) {
+                lastVideoId = currentVid;
+                loadSponsorSegments(currentVid);
+                window.swayForcedQuality = false;
+            }
+
+            const video = document.querySelector('video');
+            if (!video) return;
+
+            if (sponsorSegments.length > 0) {
+                const currentT = video.currentTime;
+                for (let i = 0; i < sponsorSegments.length; i++) {
+                    const start = sponsorSegments[i][0];
+                    const end = sponsorSegments[i][1];
+                    if (currentT >= start && currentT < end - 0.2) {
+                        video.currentTime = end;
+                        showSwayMsg("Пропуск спонсорской вставки (SponsorBlock) ⏭️");
+                        break;
+                    }
+                }
+            }
+
+            const isAdShowing = document.querySelector('.ad-showing, .ad-interrupting, .ytp-ad-player-overlay, .ytp-ad-images, .ad-showing video, .promo-showing');
+            if (isAdShowing) {
+                video.muted = true;
+                video.playbackRate = 16.0;
+                if (video.duration && isFinite(video.duration)) {
+                    video.currentTime = video.duration - 0.1;
+                }
+            }
+
+            const skipBtn = document.querySelector('.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytp-ad-skip-button-text, .ytp-ad-skip-button-container, .ytp-ad-skip-button-hover, button.ytp-ad-skip-button, .ytp-ad-skip-button-slot, ytm-ad-skip-button');
+            if (skipBtn) {
+                skipBtn.click();
+                showSwayMsg("Реклама пропущена ✨");
+            }
+
+            const closeBtn = document.querySelector('.ytp-ad-overlay-close-container button, .ytp-ad-image-overlay .ytp-ad-overlay-close-button, .ytp-ad-overlay-close-button');
+            if (closeBtn) {
+                closeBtn.click();
+            }
+
+            const player = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
+            if (player) {
+                if (typeof player.getAvailableQualityLevels === 'function' && typeof player.setPlaybackQualityRange === 'function') {
+                    if (!window.swayForcedQuality || window.location.href !== window.swayLastQualityUrl) {
+                        const levels = player.getAvailableQualityLevels();
+                        if (levels && levels.length > 0) {
+                            const highest = levels[0] || 'highres';
+                            player.setPlaybackQualityRange(highest);
+                            player.setPlaybackQuality(highest);
+                            window.swayForcedQuality = true;
+                            window.swayLastQualityUrl = window.location.href;
+                            showSwayMsg("Качество: Максимальное (" + highest + ") 🎬");
+                        }
+                    }
+                }
+            }
+        }, 300);
+    }
+})();
+"""
+
 enum class FabTrajectoryMode {
     SNAP_EDGE,
     FREE_FLOAT,
@@ -1351,6 +1543,9 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                                                 viewModel.updateUrl(it)
                                             }
                                             viewModel.clearDiscoveredMedia()
+                                            try {
+                                                view?.evaluateJavascript(YT_ENHANCER_JS, null)
+                                            } catch (e: Exception) {}
                                         }
 
                                         override fun onPageFinished(view: WebView?, url: String?) {
@@ -1502,6 +1697,9 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                                             }
                                             // Auto inject crawler on finish
                                             runCrawlerInWebView()
+                                            try {
+                                                view?.evaluateJavascript(YT_ENHANCER_JS, null)
+                                            } catch (e: Exception) {}
                                         }
 
                                         override fun shouldOverrideUrlLoading(view: WebView?, request: android.webkit.WebResourceRequest?): Boolean {
@@ -1577,7 +1775,11 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                                                         urlLower.contains(".ads.") ||
                                                         urlLower.contains("/banners/") ||
                                                         urlLower.contains("popunder") ||
-                                                        urlLower.contains("popupads")
+                                                        urlLower.contains("popupads") ||
+                                                        urlLower.contains("youtube.com/api/stats/ads") ||
+                                                        urlLower.contains("youtube.com/pagead") ||
+                                                        urlLower.contains("video-stats.l.google.com") ||
+                                                        urlLower.contains("pubads.g.doubleclick.net")
                                                 
                                                 if (isPromo) {
                                                     blockAd = true
