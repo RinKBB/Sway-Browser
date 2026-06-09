@@ -98,7 +98,14 @@ data class AppStrings(
     val fastRenderingHeader: String,
     val fastRenderingDesc: String,
     val autoCookieHeader: String,
-    val autoCookieDesc: String
+    val autoCookieDesc: String,
+
+    // In-app updater localization keys
+    val checkUpdates: String,
+    val checkingUpdatesToast: String,
+    val newUpdateAvailable: String,
+    val updateButtonLabel: String,
+    val installButtonLabel: String
 )
 
 val RuStrings = AppStrings(
@@ -187,7 +194,13 @@ val RuStrings = AppStrings(
     fastRenderingHeader = "Взрывная скорость",
     fastRenderingDesc = "Оптимизация рендеринга, агрессивное кэширование и предзагрузка ресурсов для быстрой работы",
     autoCookieHeader = "Авто-согласие Cookie",
-    autoCookieDesc = "Автоматическое отклонение или скрытие назойливых запросов о файлах Cookie без ущерба для безопасности"
+    autoCookieDesc = "Автоматическое отклонение или скрытие назойливых запросов о файлах Cookie без ущерба для безопасности",
+
+    checkUpdates = "Проверить обновление ПО",
+    checkingUpdatesToast = "Идет проверка обновлений...",
+    newUpdateAvailable = "Доступно новое обновление",
+    updateButtonLabel = "Обновить",
+    installButtonLabel = "Установить"
 )
 
 val EnStrings = AppStrings(
@@ -276,7 +289,13 @@ val EnStrings = AppStrings(
     fastRenderingHeader = "Explosive Speed",
     fastRenderingDesc = "Rendering optimization, aggressive caching, and resource prefetching for warp speed",
     autoCookieHeader = "Auto Cookie Consent",
-    autoCookieDesc = "Automatically reject or hide annoying cookie consent popups using secure settings"
+    autoCookieDesc = "Automatically reject or hide annoying cookie consent popups using secure settings",
+
+    checkUpdates = "Check Software Update",
+    checkingUpdatesToast = "Checking for updates...",
+    newUpdateAvailable = "New update available",
+    updateButtonLabel = "Update",
+    installButtonLabel = "Install"
 )
 
 val KkStrings = AppStrings(
@@ -365,7 +384,13 @@ val KkStrings = AppStrings(
     fastRenderingHeader = "Жоғары жылдамдық",
     fastRenderingDesc = "Жылдам жұмыс істеу үшін кешіруді және ресурстарды алдын ала жүктеуді оңтайландыру",
     autoCookieHeader = "Cookie авто-келісімі",
-    autoCookieDesc = "Қауіпсіз параметрлермен назойлы Cookie сұрауларын автоматты түрде қабылдамау немесе жасыру"
+    autoCookieDesc = "Қауіпсіз параметрлермен назойлы Cookie сұрауларын автоматты түрде қабылдамау немесе жасыру",
+
+    checkUpdates = "Жаңартуды тексеру",
+    checkingUpdatesToast = "Жаңартулар тексерілуде...",
+    newUpdateAvailable = "Жаңа жаңарту қолжетімді",
+    updateButtonLabel = "Жаңарту",
+    installButtonLabel = "Орнату"
 )
 
 val LocalAppStrings = staticCompositionLocalOf { RuStrings }

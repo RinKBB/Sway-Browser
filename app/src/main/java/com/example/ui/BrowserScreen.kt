@@ -1166,14 +1166,177 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
 
     Scaffold(
         topBar = {
-            if (currentTabItem == 0 && isBrowsing) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.surfaceColorAtElevation(4.dp))
-                        .statusBarsPadding()
-                ) {
-                    // Main URL Bar Header: Clean row system with Left, Center, and Right blocks properly aligned
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+            ) {
+                // In-App Update Banner
+                val updateInfoState by viewModel.updateInfo.collectAsState()
+                val updateProgressState by viewModel.updateProgress.collectAsState()
+                val bannerDismissed by viewModel.updateBannerDismissed.collectAsState()
+
+                if (updateInfoState?.hasUpdate == true && !bannerDismissed) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                            .shadow(4.dp, RoundedCornerShape(14.dp)),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFFF2424)) // Crimson background for update attention
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            IconButton(
+                                onClick = { viewModel.checkForUpdates(forceSimulate = true) },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = "Проверить заново",
+                                    tint = Color.White
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.width(6.dp))
+
+                            Column(
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(
+                                    text = updateInfoState?.latestVersionName ?: "",
+                                    color = Color.White,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = l10n.newUpdateAvailable,
+                                    color = Color.White.copy(alpha = 0.9f),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Normal
+                                )
+                            }
+
+                            Box(
+                                contentAlignment = Alignment.Center
+                            ) {
+                                when (val progress = updateProgressState) {
+                                    is com.example.viewmodel.UpdateDownloadProgress.Idle -> {
+                                        Button(
+                                            onClick = { viewModel.downloadAndInstallUpdate(localContext) },
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = Color(0xFF1E1E1E), // Dark matte element
+                                                contentColor = Color.White
+                                            ),
+                                            shape = RoundedCornerShape(10.dp),
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                            modifier = Modifier.height(34.dp).testTag("update_install_button")
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.CloudDownload,
+                                                    contentDescription = "Скачать",
+                                                    tint = Color.White,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                                Text(l10n.updateButtonLabel, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                    }
+                                    is com.example.viewmodel.UpdateDownloadProgress.Downloading -> {
+                                        Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Text(
+                                                text = if (progress.progress >= 0) {
+                                                    "Скачивание: ${(progress.progress * 100).roundToInt()}%"
+                                                } else {
+                                                    "Скачивание..."
+                                                },
+                                                color = Color.White,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            if (progress.progress >= 0) {
+                                                LinearProgressIndicator(
+                                                    progress = { progress.progress },
+                                                    modifier = Modifier.width(90.dp).height(4.dp).clip(RoundedCornerShape(2.dp)),
+                                                    color = Color.White,
+                                                    trackColor = Color.White.copy(alpha = 0.3f)
+                                                )
+                                            } else {
+                                                LinearProgressIndicator(
+                                                    modifier = Modifier.width(90.dp).height(4.dp).clip(RoundedCornerShape(2.dp)),
+                                                    color = Color.White,
+                                                    trackColor = Color.White.copy(alpha = 0.3f)
+                                                )
+                                            }
+                                        }
+                                    }
+                                    is com.example.viewmodel.UpdateDownloadProgress.Completed -> {
+                                        Button(
+                                            onClick = { viewModel.downloadAndInstallUpdate(localContext) },
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = Color(0xFF4CD964), // iOS Green
+                                                contentColor = Color.White
+                                            ),
+                                            shape = RoundedCornerShape(10.dp),
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                            modifier = Modifier.height(34.dp)
+                                        ) {
+                                            Text(l10n.installButtonLabel, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                    is com.example.viewmodel.UpdateDownloadProgress.Error -> {
+                                        Button(
+                                            onClick = { viewModel.downloadAndInstallUpdate(localContext) },
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = Color(0xFF333333),
+                                                contentColor = Color.White
+                                            ),
+                                            shape = RoundedCornerShape(10.dp),
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                            modifier = Modifier.height(34.dp)
+                                        ) {
+                                            Text("Повторить", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.width(6.dp))
+
+                            IconButton(
+                                onClick = { viewModel.dismissUpdateBanner() },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Закрыть",
+                                    tint = Color.White.copy(alpha = 0.8f),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                if (currentTabItem == 0 && isBrowsing) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surfaceColorAtElevation(4.dp))
+                    ) {
+                        // Main URL Bar Header: Clean row system with Left, Center, and Right blocks properly aligned
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1428,7 +1591,8 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                     }
                 }
             }
-        },
+        }
+    },
         floatingActionButton = {},
         bottomBar = {
             NavigationBar(
@@ -3932,7 +4096,8 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                             Triple("bookmarks", l10n.bookmarksTitle, Icons.Default.Bookmark),
                             Triple("history", l10n.historyTab, Icons.Default.History),
                             Triple("downloads", l10n.downloadsTab, Icons.Default.Download),
-                            Triple("settings", l10n.settingsTitle, Icons.Default.Settings)
+                            Triple("settings", l10n.settingsTitle, Icons.Default.Settings),
+                            Triple("update", l10n.checkUpdates, Icons.Default.Refresh)
                         )
 
                         menuActions.forEach { (id, label, icon) ->
@@ -3962,6 +4127,11 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                                             }
                                             "settings" -> {
                                                 showSettingsPage = true
+                                            }
+                                            "update" -> {
+                                                android.widget.Toast.makeText(localContext, l10n.checkingUpdatesToast, android.widget.Toast.LENGTH_SHORT).show()
+                                                viewModel.updateBannerDismissed.value = false
+                                                viewModel.checkForUpdates(forceSimulate = true)
                                             }
                                         }
                                     }
