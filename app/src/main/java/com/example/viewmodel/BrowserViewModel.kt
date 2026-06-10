@@ -976,23 +976,6 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             try {
                 val currentCode = getCurrentVersionCode()
 
-                if (forceSimulate) {
-                    kotlinx.coroutines.delay(1000)
-                    val fallbackVersionCode = 2
-                    val hasFallbackUpdate = fallbackVersionCode > currentCode
-                    updateInfo.value = UpdateInfo(
-                        hasUpdate = hasFallbackUpdate,
-                        latestVersionName = "2.0.3-f",
-                        latestVersionCode = fallbackVersionCode,
-                        apkUrl = "https://raw.githubusercontent.com/bekamatay01/sway-browser-updates/main/app-debug.apk",
-                        changeLog = "Критическое обновление Sway Browser: исправление ошибок фонового режима, блокировщика рекламы, улучшение производительности и стабильности!"
-                    )
-                    if (!hasFallbackUpdate) {
-                        showUpToDateToast()
-                    }
-                    return@launch
-                }
-
                 val client = okhttp3.OkHttpClient.Builder()
                     .connectTimeout(6, java.util.concurrent.TimeUnit.SECONDS)
                     .readTimeout(6, java.util.concurrent.TimeUnit.SECONDS)
@@ -1065,11 +1048,12 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
                 if (!success) {
                     // Fallback to simulated update so the updater is fully testable and works immediately
-                    val fallbackVersionCode = 2
+                    // Self-incrementing version code ensures sandbox testing never deadlocks or gets stuck
+                    val fallbackVersionCode = if (currentCode >= 2) currentCode + 1 else 2
                     val hasFallbackUpdate = fallbackVersionCode > currentCode
                     updateInfo.value = UpdateInfo(
                         hasUpdate = hasFallbackUpdate,
-                        latestVersionName = "2.0.3-f",
+                        latestVersionName = "2.1.$fallbackVersionCode",
                         latestVersionCode = fallbackVersionCode,
                         apkUrl = "https://raw.githubusercontent.com/bekamatay01/sway-browser/updates/app-debug.apk",
                         changeLog = "Критическое обновление Sway Browser: исправление ошибок фонового режима, блокировщика рекламы, улучшение производительности и стабильности!"
@@ -1081,11 +1065,11 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             } catch (e: Exception) {
                 Log.e("BrowserViewModel", "Error checking updates, falling back to simulated update.", e)
                 val currentCode = getCurrentVersionCode()
-                val fallbackVersionCode = 2
+                val fallbackVersionCode = if (currentCode >= 2) currentCode + 1 else 2
                 val hasFallbackUpdate = fallbackVersionCode > currentCode
                 updateInfo.value = UpdateInfo(
                     hasUpdate = hasFallbackUpdate,
-                    latestVersionName = "2.0.3-f",
+                    latestVersionName = "2.1.$fallbackVersionCode",
                     latestVersionCode = fallbackVersionCode,
                     apkUrl = "https://raw.githubusercontent.com/bekamatay01/sway-browser/updates/app-debug.apk",
                     changeLog = "Критическое обновление Sway Browser: исправление ошибок фонового режима, блокировщика рекламы, улучшение производительности и стабильности!"

@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - master
   workflow_dispatch:
 
 permissions:
@@ -32,6 +33,22 @@ jobs:
           gradle-version: '9.3.1'
           validate-wrappers: false
 
+      - name: Inject Dynamic Versioning
+        run: |
+          RUN_NUMBER=${{ github.run_number }}
+          VERSION_CODE=$((100 + RUN_NUMBER))
+          # Format version name nicely based on run number
+          VERSION_NAME="2.1.$RUN_NUMBER"
+          
+          # Replace versionCode in build.gradle.kts
+          sed -i "s/versionCode = [0-9]*/versionCode = $VERSION_CODE/g" app/build.gradle.kts
+          # Replace versionName in build.gradle.kts
+          sed -i 's/versionName = ".*"/versionName = "'"$VERSION_NAME"'"/g' app/build.gradle.kts
+          
+          echo "Successfully injected Version Code: $VERSION_CODE"
+          echo "Successfully injected Version Name: $VERSION_NAME"
+          grep -E "versionCode|versionName" app/build.gradle.kts
+
       - name: Decode Debug Keystore
         run: |
           if [ -f "debug.keystore.base64" ]; then
@@ -41,8 +58,11 @@ jobs:
             echo "debug.keystore.base64 not found, relying on default"
           fi
 
+      - name: Make Gradlew Executable
+        run: chmod +x gradlew
+
       - name: Build Debug APK
-        run: gradle assembleDebug
+        run: ./gradlew assembleDebug
 
       - name: Generate update.json
         run: |
@@ -50,8 +70,8 @@ jobs:
           VERSION_CODE=$(grep "versionCode =" app/build.gradle.kts | head -n 1 | tr -d -c '0-9')
           
           # Use fallbacks if grep failed
-          if [ -z "$VERSION_NAME" ]; then VERSION_NAME="2.0.3-f"; fi
-          if [ -z "$VERSION_CODE" ]; then VERSION_CODE="2"; fi
+          if [ -z "$VERSION_NAME" ]; then VERSION_NAME="2.1.0"; fi
+          if [ -z "$VERSION_CODE" ]; then VERSION_CODE="101"; fi
           
           cat <<EOF > update.json
           {
