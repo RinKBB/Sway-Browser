@@ -969,7 +969,19 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun checkForUpdates(forceSimulate: Boolean = false) {
+    private fun showCheckFailedToast() {
+        viewModelScope.launch(Dispatchers.Main) {
+            val lang = appLanguage.value
+            val msg = when (lang) {
+                "en" -> "Failed to check for updates. Please check your network connection."
+                "kk" -> "Жаңартуларды тексеру сәтсіз аяқталды. Желі қосылымын тексеріңіз."
+                else -> "Не удалось проверить обновления. Проверьте интернет-соединение."
+            }
+            android.widget.Toast.makeText(getApplication(), msg, android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun checkForUpdates(isManualCheck: Boolean = false, forceSimulate: Boolean = false) {
         if (isCheckingUpdates.value) return
         isCheckingUpdates.value = true
         viewModelScope.launch(Dispatchers.IO) {
@@ -1035,7 +1047,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                         } else {
                             updateInfo.value = UpdateInfo(false, name, code, url, log)
                             success = true
-                            if (forceSimulate) {
+                            if (isManualCheck || forceSimulate) {
                                 showUpToDateToast()
                             }
                         }
@@ -1045,35 +1057,58 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 }
 
                 if (!success) {
-                    // Fallback to simulated update so the updater is fully testable and works immediately
-                    // Self-incrementing version code ensures sandbox testing never deadlocks or gets stuck
+                    if (forceSimulate) {
+                        // Fallback to simulated update so the updater is fully testable and works immediately when explicitly simulated
+                        val fallbackVersionCode = if (currentCode >= 2) currentCode + 1 else 2
+                        val hasFallbackUpdate = fallbackVersionCode > currentCode
+                        updateInfo.value = UpdateInfo(
+                            hasUpdate = hasFallbackUpdate,
+                            latestVersionName = "2.1.$fallbackVersionCode",
+                            latestVersionCode = fallbackVersionCode,
+                            apkUrl = finalApkUrl,
+                            changeLog = "Критическое обновление Sway Browser: исправление ошибок фонового режима, блокировщика рекламы, улучшение производительности и стабильности!"
+                        )
+                        if (!hasFallbackUpdate && (isManualCheck || forceSimulate)) {
+                            showUpToDateToast()
+                        }
+                    } else {
+                        // Regular check failed, do not simulate or force an update!
+                        updateInfo.value = UpdateInfo(
+                            hasUpdate = false,
+                            latestVersionName = "1.0",
+                            latestVersionCode = currentCode,
+                            apkUrl = "",
+                            changeLog = ""
+                        )
+                        if (isManualCheck) {
+                            showCheckFailedToast()
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("BrowserViewModel", "Error checking updates", e)
+                val currentCode = getCurrentVersionCode()
+                if (forceSimulate) {
                     val fallbackVersionCode = if (currentCode >= 2) currentCode + 1 else 2
                     val hasFallbackUpdate = fallbackVersionCode > currentCode
                     updateInfo.value = UpdateInfo(
                         hasUpdate = hasFallbackUpdate,
                         latestVersionName = "2.1.$fallbackVersionCode",
                         latestVersionCode = fallbackVersionCode,
-                        apkUrl = finalApkUrl,
+                        apkUrl = "https://raw.githubusercontent.com/RinKBB/Sway-Browser/updates/app-debug.apk",
                         changeLog = "Критическое обновление Sway Browser: исправление ошибок фонового режима, блокировщика рекламы, улучшение производительности и стабильности!"
                     )
-                    if (!hasFallbackUpdate && forceSimulate) {
-                        showUpToDateToast()
+                } else {
+                    updateInfo.value = UpdateInfo(
+                        hasUpdate = false,
+                        latestVersionName = "1.0",
+                        latestVersionCode = currentCode,
+                        apkUrl = "",
+                        changeLog = ""
+                    )
+                    if (isManualCheck) {
+                        showCheckFailedToast()
                     }
-                }
-            } catch (e: Exception) {
-                Log.e("BrowserViewModel", "Error checking updates, falling back to simulated update.", e)
-                val currentCode = getCurrentVersionCode()
-                val fallbackVersionCode = if (currentCode >= 2) currentCode + 1 else 2
-                val hasFallbackUpdate = fallbackVersionCode > currentCode
-                updateInfo.value = UpdateInfo(
-                    hasUpdate = hasFallbackUpdate,
-                    latestVersionName = "2.1.$fallbackVersionCode",
-                    latestVersionCode = fallbackVersionCode,
-                    apkUrl = "https://raw.githubusercontent.com/RinKBB/Sway-Browser/updates/app-debug.apk",
-                    changeLog = "Критическое обновление Sway Browser: исправление ошибок фонового режима, блокировщика рекламы, улучшение производительности и стабильности!"
-                )
-                if (!hasFallbackUpdate && forceSimulate) {
-                    showUpToDateToast()
                 }
             } finally {
                 isCheckingUpdates.value = false

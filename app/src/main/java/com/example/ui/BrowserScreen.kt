@@ -1305,7 +1305,7 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             IconButton(
-                                onClick = { viewModel.checkForUpdates(forceSimulate = true) },
+                                onClick = { viewModel.checkForUpdates(isManualCheck = true, forceSimulate = false) },
                                 modifier = Modifier.size(36.dp)
                             ) {
                                 Icon(
@@ -4328,7 +4328,7 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                                             "update" -> {
                                                 android.widget.Toast.makeText(localContext, l10n.checkingUpdatesToast, android.widget.Toast.LENGTH_SHORT).show()
                                                 viewModel.updateBannerDismissed.value = false
-                                                viewModel.checkForUpdates(forceSimulate = true)
+                                                viewModel.checkForUpdates(isManualCheck = true, forceSimulate = false)
                                             }
                                         }
                                     }
