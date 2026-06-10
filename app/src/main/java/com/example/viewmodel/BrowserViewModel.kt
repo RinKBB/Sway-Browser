@@ -68,6 +68,38 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     val isFastRenderingEnabled = MutableStateFlow(prefs.getBoolean("fast_rendering", true))
     val isAutoCookieEnabled = MutableStateFlow(prefs.getBoolean("auto_cookie", true))
 
+    // YouTube and media playback enhancements
+    val isYtBackgroundEnabled = MutableStateFlow(prefs.getBoolean("yt_background_enabled", true))
+    val isSponsorBlockEnabled = MutableStateFlow(prefs.getBoolean("sponsor_block_enabled", true))
+    val isYtAutoMaxQualityEnabled = MutableStateFlow(prefs.getBoolean("yt_auto_max_quality_enabled", true))
+
+    // Cached persistent WebView to enable background tab audio & prevent state reload when switching tabs/menus
+    var cachedWebView: android.webkit.WebView? = null
+
+    @android.annotation.SuppressLint("SetJavaScriptEnabled")
+    fun getOrCreateWebView(context: android.content.Context): android.webkit.WebView {
+        if (cachedWebView == null) {
+            // Use application context to avoid activity memory leaks
+            cachedWebView = android.webkit.WebView(context.applicationContext)
+        }
+        return cachedWebView!!
+    }
+
+    fun toggleYtBackground(enabled: Boolean) {
+        isYtBackgroundEnabled.value = enabled
+        prefs.edit().putBoolean("yt_background_enabled", enabled).apply()
+    }
+
+    fun toggleSponsorBlock(enabled: Boolean) {
+        isSponsorBlockEnabled.value = enabled
+        prefs.edit().putBoolean("sponsor_block_enabled", enabled).apply()
+    }
+
+    fun toggleYtAutoMaxQuality(enabled: Boolean) {
+        isYtAutoMaxQualityEnabled.value = enabled
+        prefs.edit().putBoolean("yt_auto_max_quality_enabled", enabled).apply()
+    }
+
     fun toggleFastRendering(enabled: Boolean) {
         isFastRenderingEnabled.value = enabled
         prefs.edit().putBoolean("fast_rendering", enabled).apply()
@@ -159,8 +191,22 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     override fun onCleared() {
         super.onCleared()
+        // Clean up cached persistent WebView to avoid any memory leaks
+        try {
+            cachedWebView?.let { wv ->
+                wv.stopLoading()
+                wv.clearHistory()
+                wv.removeAllViews()
+                wv.destroy()
+            }
+        } catch (e: Exception) {}
+        cachedWebView = null
+
         if (isClearHistoryOnExitEnabled.value) {
-            clearHistory()
+            // Use an independent scope because viewModelScope is already cancelled inside onCleared()
+            kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                dao.clearAllHistory()
+            }
         }
     }
 
@@ -982,6 +1028,14 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         val info = updateInfo.value ?: return
         if (!info.hasUpdate) return
 
+        val currentProgress = updateProgress.value
+        if (currentProgress is UpdateDownloadProgress.Completed) {
+            if (currentProgress.apkFile.exists()) {
+                installApk(context, currentProgress.apkFile)
+                return
+            }
+        }
+
         if (updateProgress.value is UpdateDownloadProgress.Downloading) return
 
         updateProgress.value = UpdateDownloadProgress.Downloading(0f)
@@ -1042,6 +1096,19 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     private fun installApk(context: android.content.Context, apkFile: File) {
         try {
+            // Check for INSTALL_PACKAGES permission on Android 8.0 Oreo and higher
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                if (!context.packageManager.canRequestPackageInstalls()) {
+                    val settingsIntent = android.content.Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+                        data = android.net.Uri.parse("package:${context.packageName}")
+                        addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(settingsIntent)
+                    android.widget.Toast.makeText(context, "Для обновления разрешите установку приложений в настройках", android.widget.Toast.LENGTH_LONG).show()
+                    return
+                }
+            }
+
             val authority = "${context.packageName}.provider"
             val uri = androidx.core.content.FileProvider.getUriForFile(context, authority, apkFile)
             val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {

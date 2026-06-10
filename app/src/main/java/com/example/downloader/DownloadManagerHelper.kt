@@ -381,14 +381,19 @@ class DownloadManagerHelper(private val context: Context) {
                             val response = client.newCall(builder.build()).execute()
                             if (response.isSuccessful && response.body != null) {
                                 val body = response.body!!
-                                val rawBytes = body.bytes()
-                                response.close()
-                                
                                 val cleanedZipName = "${index}_${finalItem.filename.replace(Regex("[^a-zA-Z0-9._-]"), "_")}"
                                 val entry = ZipEntry(cleanedZipName)
                                 zipOut.putNextEntry(entry)
                                 
-                                zipOut.write(rawBytes)
+                                body.byteStream().use { input ->
+                                    val buffer = ByteArray(8192)
+                                    var readBytes: Int
+                                    while (input.read(buffer).also { readBytes = it } != -1) {
+                                        zipOut.write(buffer, 0, readBytes)
+                                    }
+                                }
+                                
+                                response.close()
                                 onItemProgress(index, totalCount, 1.0f, finalItem.filename)
                                 zipOut.closeEntry()
                             } else {

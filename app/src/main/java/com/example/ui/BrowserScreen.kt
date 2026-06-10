@@ -507,19 +507,26 @@ private const val JS_CRAWLER_CODE = """
 })();
 """
 
-private const val YT_ENHANCER_JS = """
+private fun getYtEnhancerJs(isBackground: Boolean, isSponsorBlock: Boolean, isAutoQuality: Boolean): String {
+    return """
 (function() {
+    const isBackgroundPlayEnabled = $isBackground;
+    const isSponsorBlockEnabled = $isSponsorBlock;
+    const isAutoMaxQualityEnabled = $isAutoQuality;
+
     try {
-        Object.defineProperty(document, 'hidden', { get: function() { return false; }, configurable: true });
-        Object.defineProperty(document, 'visibilityState', { get: function() { return 'visible'; }, configurable: true });
-        Object.defineProperty(document, 'webkitHidden', { get: function() { return false; }, configurable: true });
-        Object.defineProperty(document, 'webkitVisibilityState', { get: function() { return 'visible'; }, configurable: true });
-        Object.defineProperty(document, 'hasFocus', { value: function() { return true; }, writable: true, configurable: true });
+        if (isBackgroundPlayEnabled) {
+            Object.defineProperty(document, 'hidden', { get: function() { return false; }, configurable: true });
+            Object.defineProperty(document, 'visibilityState', { get: function() { return 'visible'; }, configurable: true });
+            Object.defineProperty(document, 'webkitHidden', { get: function() { return false; }, configurable: true });
+            Object.defineProperty(document, 'webkitVisibilityState', { get: function() { return 'visible'; }, configurable: true });
+            Object.defineProperty(document, 'hasFocus', { value: function() { return true; }, writable: true, configurable: true });
+        }
     } catch(e) {}
 
     const originalAddEventListener = EventTarget.prototype.addEventListener;
     EventTarget.prototype.addEventListener = function(type, listener, options) {
-        if (type === 'visibilitychange' || type === 'webkitvisibilitychange' || type === 'blur' || type === 'pagehide') {
+        if (isBackgroundPlayEnabled && (type === 'visibilitychange' || type === 'webkitvisibilitychange' || type === 'blur' || type === 'pagehide')) {
             return;
         }
         return originalAddEventListener.call(this, type, listener, options);
@@ -538,22 +545,26 @@ private const val YT_ENHANCER_JS = """
         const originalPause = HTMLVideoElement.prototype.pause;
 
         HTMLVideoElement.prototype.pause = function() {
-            const timeDiff = Date.now() - lastInteraction;
-            if (timeDiff > 1200 && (document.hidden || !document.hasFocus())) {
-                return Promise.resolve();
+            if (isBackgroundPlayEnabled) {
+                const timeDiff = Date.now() - lastInteraction;
+                if (timeDiff > 1200 && (document.hidden || !document.hasFocus())) {
+                    return Promise.resolve();
+                }
             }
             isUserPaused = true;
+            window.swayUserPaused = true;
             return originalPause.apply(this, arguments);
         };
 
         HTMLVideoElement.prototype.play = function() {
             isUserPaused = false;
+            window.swayUserPaused = false;
             return originalPlay.apply(this, arguments);
         };
     } catch(e) {}
 
     setInterval(() => {
-        if (!isUserPaused && (document.hidden || !document.hasFocus())) {
+        if (isBackgroundPlayEnabled && !isUserPaused && (document.hidden || !document.hasFocus())) {
             const videos = document.querySelectorAll('video');
             videos.forEach(v => {
                 if (v.paused && !v.ended) {
@@ -566,8 +577,10 @@ private const val YT_ENHANCER_JS = """
     if (window.location.hostname.includes('youtube.com') || window.location.hostname.includes('youtu.be')) {
         const yStyle = document.createElement('style');
         yStyle.id = 'sway-yt-ad-blocker-style';
-        yStyle.innerHTML = ' .ytp-ad-overlay-container, .ytp-ad-message-container, .ytp-ad-action-button, .ytp-ad-image-overlay, ytd-companion-ad-renderer, ytd-display-ad-renderer, ytd-compact-promoted-video-renderer, ytm-promoted-sparkles-web-renderer { display: none !important; visibility: hidden !important; height: 0 !important; opacity: 0 !important; pointer-events: none !important; } ';
-        document.head.appendChild(yStyle);
+        yStyle.innerHTML = ' .ytp-ad-overlay-container, .ytp-ad-message-container, .ytp-ad-action-button, .ytp-ad-image-overlay, ytd-companion-ad-renderer, ytd-display-ad-renderer, ytd-compact-promoted-video-renderer, ytm-promoted-sparkles-web-renderer, ytd-ad-slot-renderer, .ytd-ad-slot-renderer, .ytp-ad-overlay-slot, ytm-companion-ad-renderer, .yt-ad-tile-renderer, ytm-ad-landing-page-spec, .ad-container, .ad-image, .ad-showing, .ad-interrupting, yt-mealbar-promo-renderer, #masthead-ad, .video-ads, .ytp-ad-player-overlay, .ytp-ad-player-overlay-layout-entry { display: none !important; visibility: hidden !important; height: 0 !important; min-height: 0 !important; width: 0 !important; opacity: 0 !important; pointer-events: none !important; } ';
+        if (!document.getElementById('sway-yt-ad-blocker-style')) {
+            document.head.appendChild(yStyle);
+        }
 
         function showSwayMsg(text, duration = 3000) {
             let container = document.getElementById('sway-toast-container');
@@ -613,6 +626,7 @@ private const val YT_ENHANCER_JS = """
         }
 
         function loadSponsorSegments(vid) {
+            if (!isSponsorBlockEnabled) return;
             if (!vid) return;
             sponsorSegments = [];
             const categories = '["sponsor","selfpromo","interaction","intro","outro","preview"]';
@@ -627,7 +641,7 @@ private const val YT_ENHANCER_JS = """
                     if (Array.isArray(data)) {
                         sponsorSegments = data.map(item => item.segment);
                         if (sponsorSegments.length > 0) {
-                            showSwayMsg("SponsorBlock: найдено " + sponsorSegments.length + " сегментов для пропуска");
+                            showSwayMsg("SponsorBlock: найдено " + sponsorSegments.length + " сегментов для пропуска 🛠️");
                         }
                     }
                 })
@@ -645,7 +659,7 @@ private const val YT_ENHANCER_JS = """
             const video = document.querySelector('video');
             if (!video) return;
 
-            if (sponsorSegments.length > 0) {
+            if (isSponsorBlockEnabled && sponsorSegments.length > 0) {
                 const currentT = video.currentTime;
                 for (let i = 0; i < sponsorSegments.length; i++) {
                     const start = sponsorSegments[i][0];
@@ -658,28 +672,33 @@ private const val YT_ENHANCER_JS = """
                 }
             }
 
-            const isAdShowing = document.querySelector('.ad-showing, .ad-interrupting, .ytp-ad-player-overlay, .ytp-ad-images, .ad-showing video, .promo-showing');
-            if (isAdShowing) {
+            const adOverlay = document.querySelector('.ytp-ad-player-overlay, .ytp-ad-message-container, .ytp-ad-overlay-container, .ytp-ad-compact-layout, .ad-showing, .ad-interrupting, .ytp-ad-images, .promo-showing, .ytp-ad-overlay-slot, ytm-companion-ad-renderer, .yt-ad-tile-renderer');
+            const skipBtn = document.querySelector('.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytp-ad-skip-button-text, .ytp-ad-skip-button-container, .ytp-ad-skip-button-hover, button.ytp-ad-skip-button, .ytp-ad-skip-button-slot, ytm-ad-skip-button');
+            const videoIsAd = document.querySelector('.ad-showing video, video.ad-showing, .ad-interrupting video');
+            
+            if (adOverlay || skipBtn || videoIsAd) {
                 video.muted = true;
                 video.playbackRate = 16.0;
                 if (video.duration && isFinite(video.duration)) {
                     video.currentTime = video.duration - 0.1;
                 }
-            }
-
-            const skipBtn = document.querySelector('.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytp-ad-skip-button-text, .ytp-ad-skip-button-container, .ytp-ad-skip-button-hover, button.ytp-ad-skip-button, .ytp-ad-skip-button-slot, ytm-ad-skip-button');
-            if (skipBtn) {
-                skipBtn.click();
-                showSwayMsg("Реклама пропущена ✨");
+                const player = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
+                if (player && typeof player.skipAd === 'function') {
+                    player.skipAd();
+                }
+                if (skipBtn) {
+                    try { skipBtn.click(); } catch(e) {}
+                    showSwayMsg("Реклама пропущена ✨");
+                }
             }
 
             const closeBtn = document.querySelector('.ytp-ad-overlay-close-container button, .ytp-ad-image-overlay .ytp-ad-overlay-close-button, .ytp-ad-overlay-close-button');
             if (closeBtn) {
-                closeBtn.click();
+                try { closeBtn.click(); } catch(e) {}
             }
 
             const player = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
-            if (player) {
+            if (isAutoMaxQualityEnabled && player) {
                 if (typeof player.getAvailableQualityLevels === 'function' && typeof player.setPlaybackQualityRange === 'function') {
                     if (!window.swayForcedQuality || window.location.href !== window.swayLastQualityUrl) {
                         const levels = player.getAvailableQualityLevels();
@@ -697,7 +716,8 @@ private const val YT_ENHANCER_JS = """
         }, 300);
     }
 })();
-"""
+""";
+}
 
 enum class FabTrajectoryMode {
     SNAP_EDGE,
@@ -743,20 +763,37 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
     var showSettingsPage by remember { mutableStateOf(false) }
 
     var textInputUrl by remember { mutableStateOf(currentUrl) }
-    var webViewRef by remember { mutableStateOf<WebView?>(null) }
+    
+    // Retrieve cached persistent WebView to enable continuous audio play and avoid state reloads
+    val persistentWebView = viewModel.getOrCreateWebView(localContext)
+    var webViewRef by remember { mutableStateOf<WebView?>(persistentWebView) }
+    
+    val isYtBackgroundEnabled by viewModel.isYtBackgroundEnabled.collectAsState()
+    val isSponsorBlockEnabled by viewModel.isSponsorBlockEnabled.collectAsState()
+    val isYtAutoMaxQualityEnabled by viewModel.isYtAutoMaxQualityEnabled.collectAsState()
 
-    // Предотвращение утечки памяти: отгрузка WebView при уничтожении Compose
-    DisposableEffect(Unit) {
-        onDispose {
+    // Фоновый режим для YouTube / Внешний триггер активности WebView
+    LaunchedEffect(webViewRef, isYtBackgroundEnabled) {
+        if (!isYtBackgroundEnabled) return@LaunchedEffect
+        while (true) {
+            delay(1500)
             webViewRef?.let { wv ->
-                try {
-                    wv.stopLoading()
-                    wv.clearHistory()
-                    wv.removeAllViews()
-                    wv.destroy()
-                } catch (e: Exception) {}
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    try {
+                        val currentUrlStr = wv.url ?: ""
+                        if (currentUrlStr.contains("youtube.com") || currentUrlStr.contains("youtu.be")) {
+                            wv.evaluateJavascript("""
+                                (function() {
+                                    const video = document.querySelector('video');
+                                    if (video && video.paused && !video.ended && !window.swayUserPaused) {
+                                        video.play().catch(function(){});
+                                    }
+                                })();
+                            """.trimIndent(), null)
+                        }
+                    } catch (e: Exception) {}
+                }
             }
-            webViewRef = null
         }
     }
 
@@ -1708,7 +1745,8 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                                             }
                                             viewModel.clearDiscoveredMedia()
                                             try {
-                                                view?.evaluateJavascript(YT_ENHANCER_JS, null)
+                                                val js = getYtEnhancerJs(isYtBackgroundEnabled, isSponsorBlockEnabled, isYtAutoMaxQualityEnabled)
+                                                view?.evaluateJavascript(js, null)
                                             } catch (e: Exception) {}
                                         }
 
@@ -1862,7 +1900,8 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                                             // Auto inject crawler on finish
                                             runCrawlerInWebView()
                                             try {
-                                                view?.evaluateJavascript(YT_ENHANCER_JS, null)
+                                                val js = getYtEnhancerJs(isYtBackgroundEnabled, isSponsorBlockEnabled, isYtAutoMaxQualityEnabled)
+                                                view?.evaluateJavascript(js, null)
                                             } catch (e: Exception) {}
                                         }
 
@@ -1943,7 +1982,12 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                                                         urlLower.contains("youtube.com/api/stats/ads") ||
                                                         urlLower.contains("youtube.com/pagead") ||
                                                         urlLower.contains("video-stats.l.google.com") ||
-                                                        urlLower.contains("pubads.g.doubleclick.net")
+                                                        urlLower.contains("pubads.g.doubleclick.net") ||
+                                                        urlLower.contains("youtube.com/ptracking") ||
+                                                        urlLower.contains("youtube.com/ad_companion") ||
+                                                        urlLower.contains("youtube.com/get_midroll_info") ||
+                                                        urlLower.contains("youtube.com/api/stats/atr") ||
+                                                        urlLower.contains("youtube.com/api/stats/delayplay")
                                                 
                                                 if (isPromo) {
                                                     blockAd = true
