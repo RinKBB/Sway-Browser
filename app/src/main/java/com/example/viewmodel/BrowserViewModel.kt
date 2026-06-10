@@ -952,8 +952,8 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                         hasUpdate = true,
                         latestVersionName = "2.0.3-f",
                         latestVersionCode = 2,
-                        apkUrl = "https://raw.githubusercontent.com/appium/appium/master/packages/appium/sample-code/apps/ApiDemos-debug.apk",
-                        changeLog = "Встроенное обновление внутри приложения и автоматическая проверка версий при запуске программы!"
+                        apkUrl = "https://raw.githubusercontent.com/bekamatay01/sway-browser-updates/main/app-debug.apk",
+                        changeLog = "Критическое обновление Sway Browser: исправление ошибок фонового режима, блокировщика рекламы, улучшение производительности и стабильности!"
                     )
                     return@launch
                 }
@@ -1005,8 +1005,8 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                         hasUpdate = true,
                         latestVersionName = "2.0.3-f",
                         latestVersionCode = 2,
-                        apkUrl = "https://raw.githubusercontent.com/appium/appium/master/packages/appium/sample-code/apps/ApiDemos-debug.apk",
-                        changeLog = "Встроенное обновление внутри приложения и автоматическая проверка версий при запуске программы!"
+                        apkUrl = "https://raw.githubusercontent.com/bekamatay01/sway-browser-updates/main/app-debug.apk",
+                        changeLog = "Критическое обновление Sway Browser: исправление ошибок фонового режима, блокировщика рекламы, улучшение производительности и стабильности!"
                     )
                 }
             } catch (e: Exception) {
@@ -1015,8 +1015,8 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                     hasUpdate = true,
                     latestVersionName = "2.0.3-f",
                     latestVersionCode = 2,
-                    apkUrl = "https://raw.githubusercontent.com/appium/appium/master/packages/appium/sample-code/apps/ApiDemos-debug.apk",
-                    changeLog = "Встроенное обновление внутри приложения и автоматическая проверка версий при запуске программы!"
+                    apkUrl = "https://raw.githubusercontent.com/bekamatay01/sway-browser-updates/main/app-debug.apk",
+                    changeLog = "Критическое обновление Sway Browser: исправление ошибок фонового режима, блокировщика рекламы, улучшение производительности и стабильности!"
                 )
             } finally {
                 isCheckingUpdates.value = false

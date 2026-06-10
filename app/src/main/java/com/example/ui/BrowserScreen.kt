@@ -4058,6 +4058,83 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                             }
                         }
 
+                        // YouTube & Media Enhancements Card
+                        Card(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Text(
+                                    text = "YOUTUBE & МУЛЬТИМЕДИА",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                // Background Play Switch
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 6.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(l10n.ytBackgroundHeader, fontWeight = FontWeight.Bold)
+                                        Text(l10n.ytBackgroundDesc, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                    Switch(
+                                        modifier = Modifier.testTag("yt_background_switch"),
+                                        checked = isYtBackgroundEnabled,
+                                        onCheckedChange = { viewModel.toggleYtBackground(it) }
+                                    )
+                                }
+
+                                HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
+
+                                // SponsorBlock Switch
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 6.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(l10n.sponsorBlockHeader, fontWeight = FontWeight.Bold)
+                                        Text(l10n.sponsorBlockDesc, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                    Switch(
+                                        modifier = Modifier.testTag("sponsor_block_switch"),
+                                        checked = isSponsorBlockEnabled,
+                                        onCheckedChange = { viewModel.toggleSponsorBlock(it) }
+                                    )
+                                }
+
+                                HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
+
+                                // Auto Max Quality Switch
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 6.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(l10n.ytAutoQualityHeader, fontWeight = FontWeight.Bold)
+                                        Text(l10n.ytAutoQualityDesc, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                    Switch(
+                                        modifier = Modifier.testTag("yt_auto_quality_switch"),
+                                        checked = isYtAutoMaxQualityEnabled,
+                                        onCheckedChange = { viewModel.toggleYtAutoMaxQuality(it) }
+                                    )
+                                }
+                            }
+                        }
+
                         // Clear Data Card
                         Card(
                             modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
@@ -4287,6 +4364,60 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                                 modifier = Modifier.testTag("menu_auto_cookie_switch"),
                                 checked = isAutoCookieEnabled,
                                 onCheckedChange = { viewModel.toggleAutoCookie(it) }
+                            )
+                        }
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(l10n.ytBackgroundHeader, fontWeight = FontWeight.Bold)
+                                Text(l10n.ytBackgroundDesc, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Switch(
+                                modifier = Modifier.testTag("menu_yt_background_switch"),
+                                checked = isYtBackgroundEnabled,
+                                onCheckedChange = { viewModel.toggleYtBackground(it) }
+                            )
+                        }
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(l10n.sponsorBlockHeader, fontWeight = FontWeight.Bold)
+                                Text(l10n.sponsorBlockDesc, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Switch(
+                                modifier = Modifier.testTag("menu_sponsor_block_switch"),
+                                checked = isSponsorBlockEnabled,
+                                onCheckedChange = { viewModel.toggleSponsorBlock(it) }
+                            )
+                        }
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(l10n.ytAutoQualityHeader, fontWeight = FontWeight.Bold)
+                                Text(l10n.ytAutoQualityDesc, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Switch(
+                                modifier = Modifier.testTag("menu_yt_auto_quality_switch"),
+                                checked = isYtAutoMaxQualityEnabled,
+                                onCheckedChange = { viewModel.toggleYtAutoMaxQuality(it) }
                             )
                         }
                     }

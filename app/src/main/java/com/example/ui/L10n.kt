@@ -100,6 +100,14 @@ data class AppStrings(
     val autoCookieHeader: String,
     val autoCookieDesc: String,
 
+    // YouTube and Block Enhancements
+    val ytBackgroundHeader: String,
+    val ytBackgroundDesc: String,
+    val sponsorBlockHeader: String,
+    val sponsorBlockDesc: String,
+    val ytAutoQualityHeader: String,
+    val ytAutoQualityDesc: String,
+
     // In-app updater localization keys
     val checkUpdates: String,
     val checkingUpdatesToast: String,
@@ -196,6 +204,13 @@ val RuStrings = AppStrings(
     autoCookieHeader = "Авто-согласие Cookie",
     autoCookieDesc = "Автоматическое отклонение или скрытие назойливых запросов о файлах Cookie без ущерба для безопасности",
 
+    ytBackgroundHeader = "Фоновый режим для YouTube",
+    ytBackgroundDesc = "Продолжать воспроизведение аудио даже при свернутом приложении или выключенном экране",
+    sponsorBlockHeader = "Пропуск спонсоров (SponsorBlock)",
+    sponsorBlockDesc = "Автоматически пропускать встроенную рекламу, заставки и спонсорские интеграции в видео",
+    ytAutoQualityHeader = "Максимальное качество видео",
+    ytAutoQualityDesc = "Автоматически выбирать максимальное доступное разрешение видео на YouTube",
+
     checkUpdates = "Проверить обновление ПО",
     checkingUpdatesToast = "Идет проверка обновлений...",
     newUpdateAvailable = "Доступно новое обновление",
@@ -291,6 +306,13 @@ val EnStrings = AppStrings(
     autoCookieHeader = "Auto Cookie Consent",
     autoCookieDesc = "Automatically reject or hide annoying cookie consent popups using secure settings",
 
+    ytBackgroundHeader = "YouTube Background Play",
+    ytBackgroundDesc = "Keep playing video audio when the app is minimized or screen is locked",
+    sponsorBlockHeader = "SponsorBlock Integration",
+    sponsorBlockDesc = "Automatically skip sponsored segments, intros, and announcements inside YouTube videos",
+    ytAutoQualityHeader = "Max Video Quality",
+    ytAutoQualityDesc = "Automatically select the highest available video quality on YouTube",
+
     checkUpdates = "Check Software Update",
     checkingUpdatesToast = "Checking for updates...",
     newUpdateAvailable = "New update available",
@@ -382,9 +404,16 @@ val KkStrings = AppStrings(
     adBlockStatistics = "Sway Қорғанысы блоктады",
 
     fastRenderingHeader = "Жоғары жылдамдық",
-    fastRenderingDesc = "Жылдам жұмыс істеу үшін кешіруді және ресурстарды алдын ала жүктеуді оңтайландыру",
+    fastRenderingDesc = "Жылдам жұмыс істеу үшін кешіруді және ресурсарды алдын ала жүктеуді оңтайландыру",
     autoCookieHeader = "Cookie авто-келісімі",
     autoCookieDesc = "Қауіпсіз параметрлермен назойлы Cookie сұрауларын автоматты түрде қабылдамау немесе жасыру",
+
+    ytBackgroundHeader = "YouTube Фондық режимі",
+    ytBackgroundDesc = "Қосымша жиналғанда немесе экран өшірілгенде дыбысты ойнатуды жалғастыру",
+    sponsorBlockHeader = "SponsorBlock интеграциясы",
+    sponsorBlockDesc = "Бейнедегі кіріктірілген демеушілік жарнамаларды, кіріспелерді автоматты түрде өткізіп жіберу",
+    ytAutoQualityHeader = "Максималды бейне сапасы",
+    ytAutoQualityDesc = "YouTube-та автоматты түрде ең жоғары қолжетімді сапаны таңдау",
 
     checkUpdates = "Жаңартуды тексеру",
     checkingUpdatesToast = "Жаңартулар тексерілуде...",
