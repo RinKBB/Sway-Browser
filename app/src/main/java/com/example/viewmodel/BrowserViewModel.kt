@@ -981,38 +981,36 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                     .readTimeout(6, java.util.concurrent.TimeUnit.SECONDS)
                     .build()
 
-                // Primary update checking URL: dedicated updates repo
-                val urlPrimary = "https://raw.githubusercontent.com/bekamatay01/sway-browser-updates/main/update.json"
-                // Secondary fallback update checking URL: main repo updates branch
-                val urlSecondary = "https://raw.githubusercontent.com/bekamatay01/sway-browser/updates/update.json"
+                // List of potential update URLs to scan dynamically in order of priority (handles multiple repos / capitalizations)
+                val urlsToTry = listOf(
+                    "https://raw.githubusercontent.com/RinKBB/Sway-Browser/updates/update.json",
+                    "https://raw.githubusercontent.com/RinKBB/sway-browser-updates/main/update.json",
+                    "https://raw.githubusercontent.com/bekamatay01/sway-browser/updates/update.json",
+                    "https://raw.githubusercontent.com/bekamatay01/sway-browser-updates/main/update.json"
+                )
 
                 var jsonBody: String? = null
-                var finalApkUrl: String = "https://raw.githubusercontent.com/bekamatay01/sway-browser-updates/main/app-debug.apk"
+                var finalApkUrl = "https://raw.githubusercontent.com/RinKBB/Sway-Browser/updates/app-debug.apk"
 
-                // Try Primary Source
-                try {
-                    val request = okhttp3.Request.Builder().url(urlPrimary).build()
-                    client.newCall(request).execute().use { response ->
-                        if (response.isSuccessful) {
-                            jsonBody = response.body?.string()
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.e("BrowserViewModel", "Primary update source fetch failed, trying secondary: ${e.message}")
-                }
-
-                // Try Secondary Source if needed
-                if (jsonBody == null) {
+                for (url in urlsToTry) {
                     try {
-                        val request = okhttp3.Request.Builder().url(urlSecondary).build()
+                        val request = okhttp3.Request.Builder().url(url).build()
                         client.newCall(request).execute().use { response ->
                             if (response.isSuccessful) {
-                                jsonBody = response.body?.string()
-                                finalApkUrl = "https://raw.githubusercontent.com/bekamatay01/sway-browser/updates/app-debug.apk"
+                                val body = response.body?.string()
+                                if (!body.isNullOrBlank()) {
+                                    jsonBody = body
+                                    val lastSlash = url.lastIndexOf('/')
+                                    if (lastSlash != -1) {
+                                        finalApkUrl = url.substring(0, lastSlash) + "/app-debug.apk"
+                                    }
+                                    Log.d("BrowserViewModel", "Successfully fetched update info from: $url")
+                                    break
+                                }
                             }
                         }
                     } catch (e: Exception) {
-                        Log.e("BrowserViewModel", "Secondary update source fetch failed: ${e.message}")
+                        Log.e("BrowserViewModel", "Fetch from update source failed ($url): ${e.message}")
                     }
                 }
 
@@ -1055,7 +1053,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                         hasUpdate = hasFallbackUpdate,
                         latestVersionName = "2.1.$fallbackVersionCode",
                         latestVersionCode = fallbackVersionCode,
-                        apkUrl = "https://raw.githubusercontent.com/bekamatay01/sway-browser/updates/app-debug.apk",
+                        apkUrl = finalApkUrl,
                         changeLog = "Критическое обновление Sway Browser: исправление ошибок фонового режима, блокировщика рекламы, улучшение производительности и стабильности!"
                     )
                     if (!hasFallbackUpdate && forceSimulate) {
@@ -1071,7 +1069,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                     hasUpdate = hasFallbackUpdate,
                     latestVersionName = "2.1.$fallbackVersionCode",
                     latestVersionCode = fallbackVersionCode,
-                    apkUrl = "https://raw.githubusercontent.com/bekamatay01/sway-browser/updates/app-debug.apk",
+                    apkUrl = "https://raw.githubusercontent.com/RinKBB/Sway-Browser/updates/app-debug.apk",
                     changeLog = "Критическое обновление Sway Browser: исправление ошибок фонового режима, блокировщика рекламы, улучшение производительности и стабильности!"
                 )
                 if (!hasFallbackUpdate && forceSimulate) {

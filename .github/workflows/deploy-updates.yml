@@ -58,11 +58,8 @@ jobs:
             echo "debug.keystore.base64 not found, relying on default"
           fi
 
-      - name: Make Gradlew Executable
-        run: chmod +x gradlew
-
       - name: Build Debug APK
-        run: ./gradlew assembleDebug
+        run: gradle assembleDebug
 
       - name: Generate update.json
         run: |
