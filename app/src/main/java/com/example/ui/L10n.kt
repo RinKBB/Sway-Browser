@@ -113,7 +113,8 @@ data class AppStrings(
     val checkingUpdatesToast: String,
     val newUpdateAvailable: String,
     val updateButtonLabel: String,
-    val installButtonLabel: String
+    val installButtonLabel: String,
+    val noUpdatesAvailableToast: String
 )
 
 val RuStrings = AppStrings(
@@ -215,7 +216,8 @@ val RuStrings = AppStrings(
     checkingUpdatesToast = "Идет проверка обновлений...",
     newUpdateAvailable = "Доступно новое обновление",
     updateButtonLabel = "Обновить",
-    installButtonLabel = "Установить"
+    installButtonLabel = "Установить",
+    noUpdatesAvailableToast = "У Вас уже установлена последняя версия!"
 )
 
 val EnStrings = AppStrings(
@@ -317,7 +319,8 @@ val EnStrings = AppStrings(
     checkingUpdatesToast = "Checking for updates...",
     newUpdateAvailable = "New update available",
     updateButtonLabel = "Update",
-    installButtonLabel = "Install"
+    installButtonLabel = "Install",
+    noUpdatesAvailableToast = "You already have the latest version!"
 )
 
 val KkStrings = AppStrings(
@@ -419,7 +422,8 @@ val KkStrings = AppStrings(
     checkingUpdatesToast = "Жаңартулар тексерілуде...",
     newUpdateAvailable = "Жаңа жаңарту қолжетімді",
     updateButtonLabel = "Жаңарту",
-    installButtonLabel = "Орнату"
+    installButtonLabel = "Орнату",
+    noUpdatesAvailableToast = "Сізде ең соңғы нұсқасы орнатылған!"
 )
 
 val LocalAppStrings = staticCompositionLocalOf { RuStrings }

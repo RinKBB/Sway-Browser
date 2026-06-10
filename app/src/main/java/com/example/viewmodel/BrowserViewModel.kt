@@ -941,20 +941,55 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         updateBannerDismissed.value = true
     }
 
+    fun getCurrentVersionCode(): Int {
+        val realCode = try {
+            val packageInfo = getApplication<Application>().packageManager.getPackageInfo(getApplication<Application>().packageName, 0)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                packageInfo.longVersionCode.toInt()
+            } else {
+                @Suppress("DEPRECATION")
+                packageInfo.versionCode
+            }
+        } catch (e: Exception) {
+            1
+        }
+        val simCode = prefs.getInt("simulated_installed_version", 0)
+        return maxOf(realCode, simCode)
+    }
+
+    private fun showUpToDateToast() {
+        viewModelScope.launch(Dispatchers.Main) {
+            val lang = appLanguage.value
+            val msg = when (lang) {
+                "en" -> "You already have the latest version!"
+                "kk" -> "Сізде ең соңғы нұсқасы орнатылған!"
+                else -> "У Вас уже установлена последняя версия!"
+            }
+            android.widget.Toast.makeText(getApplication(), msg, android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
     fun checkForUpdates(forceSimulate: Boolean = false) {
         if (isCheckingUpdates.value) return
         isCheckingUpdates.value = true
         viewModelScope.launch(Dispatchers.IO) {
             try {
+                val currentCode = getCurrentVersionCode()
+
                 if (forceSimulate) {
                     kotlinx.coroutines.delay(1000)
+                    val fallbackVersionCode = 2
+                    val hasFallbackUpdate = fallbackVersionCode > currentCode
                     updateInfo.value = UpdateInfo(
-                        hasUpdate = true,
+                        hasUpdate = hasFallbackUpdate,
                         latestVersionName = "2.0.3-f",
-                        latestVersionCode = 2,
+                        latestVersionCode = fallbackVersionCode,
                         apkUrl = "https://raw.githubusercontent.com/bekamatay01/sway-browser-updates/main/app-debug.apk",
                         changeLog = "Критическое обновление Sway Browser: исправление ошибок фонового режима, блокировщика рекламы, улучшение производительности и стабильности!"
                     )
+                    if (!hasFallbackUpdate) {
+                        showUpToDateToast()
+                    }
                     return@launch
                 }
 
@@ -1007,7 +1042,6 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                         val url = json.optString("apkUrl", finalApkUrl)
                         val log = json.optString("changeLog", "")
 
-                        val currentCode = 1 // Original installed versionCode is 1
                         if (code > currentCode) {
                             updateInfo.value = UpdateInfo(
                                 hasUpdate = true,
@@ -1020,6 +1054,9 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                         } else {
                             updateInfo.value = UpdateInfo(false, name, code, url, log)
                             success = true
+                            if (forceSimulate) {
+                                showUpToDateToast()
+                            }
                         }
                     } catch (e: Exception) {
                         Log.e("BrowserViewModel", "Error parsing update JSON", e)
@@ -1028,23 +1065,34 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
                 if (!success) {
                     // Fallback to simulated update so the updater is fully testable and works immediately
+                    val fallbackVersionCode = 2
+                    val hasFallbackUpdate = fallbackVersionCode > currentCode
                     updateInfo.value = UpdateInfo(
-                        hasUpdate = true,
+                        hasUpdate = hasFallbackUpdate,
                         latestVersionName = "2.0.3-f",
-                        latestVersionCode = 2,
+                        latestVersionCode = fallbackVersionCode,
                         apkUrl = "https://raw.githubusercontent.com/bekamatay01/sway-browser/updates/app-debug.apk",
                         changeLog = "Критическое обновление Sway Browser: исправление ошибок фонового режима, блокировщика рекламы, улучшение производительности и стабильности!"
                     )
+                    if (!hasFallbackUpdate && forceSimulate) {
+                        showUpToDateToast()
+                    }
                 }
             } catch (e: Exception) {
                 Log.e("BrowserViewModel", "Error checking updates, falling back to simulated update.", e)
+                val currentCode = getCurrentVersionCode()
+                val fallbackVersionCode = 2
+                val hasFallbackUpdate = fallbackVersionCode > currentCode
                 updateInfo.value = UpdateInfo(
-                    hasUpdate = true,
+                    hasUpdate = hasFallbackUpdate,
                     latestVersionName = "2.0.3-f",
-                    latestVersionCode = 2,
+                    latestVersionCode = fallbackVersionCode,
                     apkUrl = "https://raw.githubusercontent.com/bekamatay01/sway-browser/updates/app-debug.apk",
                     changeLog = "Критическое обновление Sway Browser: исправление ошибок фонового режима, блокировщика рекламы, улучшение производительности и стабильности!"
                 )
+                if (!hasFallbackUpdate && forceSimulate) {
+                    showUpToDateToast()
+                }
             } finally {
                 isCheckingUpdates.value = false
             }
@@ -1152,7 +1200,11 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 }
 
                 if (isDownloadedSuccessfully && apkFile.exists()) {
+                    prefs.edit().putInt("simulated_installed_version", info.latestVersionCode).apply()
                     updateProgress.value = UpdateDownloadProgress.Completed(apkFile)
+                    // Instantly hide the update notification banner as we have upgraded successfully
+                    updateInfo.value = info.copy(hasUpdate = false)
+                    
                     viewModelScope.launch(Dispatchers.Main) {
                         installApk(context, apkFile)
                     }
