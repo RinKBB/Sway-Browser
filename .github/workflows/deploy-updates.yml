@@ -27,6 +27,15 @@ jobs:
           java-version: '17'
           cache: 'gradle'
 
+      - name: Decode Debug Keystore
+        run: |
+          if [ -f "debug.keystore.base64" ]; then
+            base64 -d debug.keystore.base64 > debug.keystore
+            echo "Successfully decoded debug.keystore"
+          else
+            echo "debug.keystore.base64 not found, relying on default"
+          fi
+
       - name: Grant Execute Permission to Gradle Wrapper
         run: chmod +x gradlew
 
@@ -55,9 +64,10 @@ jobs:
 
       - name: Deploy to updates branch
         run: |
-          # Keep compiled products
-          cp app/build/outputs/apk/debug/app-debug.apk ./app-debug.apk
-          cp update.json ./update.json
+          # Keep compiled products in an isolated temp directory
+          mkdir -p /tmp/sway-release
+          cp app/build/outputs/apk/debug/app-debug.apk /tmp/sway-release/app-debug.apk
+          cp update.json /tmp/sway-release/update.json
           
           # Setup git
           git config --global user.name "github-actions[bot]"
@@ -65,11 +75,12 @@ jobs:
           
           # Checkout or create updates branch
           git checkout --orphan updates
-          git rm -rf .
+          git rm -rf . || true
+          git clean -fdx
           
           # Move Compiled Files back to root
-          mv ./app-debug.apk ./app-debug.apk
-          mv ./update.json ./update.json
+          cp /tmp/sway-release/app-debug.apk ./app-debug.apk
+          cp /tmp/sway-release/update.json ./update.json
           
           # Commit and Push
           git add app-debug.apk update.json
