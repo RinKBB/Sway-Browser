@@ -516,6 +516,15 @@ private fun getYtEnhancerJs(isBackground: Boolean, isSponsorBlock: Boolean, isAu
     const isSponsorBlockEnabled = $isSponsorBlock;
     const isAutoMaxQualityEnabled = $isAutoQuality;
 
+    // Helper to send message back to Android
+    function reportAdBlocked() {
+        try {
+            if (window.AndroidMediaDownloader && typeof window.AndroidMediaDownloader.reportAdBlocked === 'function') {
+                window.AndroidMediaDownloader.reportAdBlocked();
+            }
+        } catch(e) {}
+    }
+
     try {
         if (isBackgroundPlayEnabled) {
             Object.defineProperty(document, 'hidden', { get: function() { return false; }, configurable: true });
@@ -579,7 +588,7 @@ private fun getYtEnhancerJs(isBackground: Boolean, isSponsorBlock: Boolean, isAu
     if (window.location.hostname.includes('youtube.com') || window.location.hostname.includes('youtu.be')) {
         const yStyle = document.createElement('style');
         yStyle.id = 'sway-yt-ad-blocker-style';
-        yStyle.innerHTML = ' .ytp-ad-overlay-container, .ytp-ad-message-container, .ytp-ad-action-button, .ytp-ad-image-overlay, ytd-companion-ad-renderer, ytd-display-ad-renderer, ytd-compact-promoted-video-renderer, ytm-promoted-sparkles-web-renderer, ytd-ad-slot-renderer, .ytd-ad-slot-renderer, .ytp-ad-overlay-slot, ytm-companion-ad-renderer, .yt-ad-tile-renderer, ytm-ad-landing-page-spec, .ad-container, .ad-image, .ad-showing, .ad-interrupting, yt-mealbar-promo-renderer, #masthead-ad, .video-ads, .ytp-ad-player-overlay, .ytp-ad-player-overlay-layout-entry { display: none !important; visibility: hidden !important; height: 0 !important; min-height: 0 !important; width: 0 !important; opacity: 0 !important; pointer-events: none !important; } ';
+        yStyle.innerHTML = ' .ytp-ad-overlay-container, .ytp-ad-message-container, .ytp-ad-action-button, .ytp-ad-image-overlay, ytd-companion-ad-renderer, ytd-display-ad-renderer, ytd-compact-promoted-video-renderer, ytm-promoted-sparkles-web-renderer, ytd-ad-slot-renderer, .ytd-ad-slot-renderer, .ytp-ad-overlay-slot, ytm-companion-ad-renderer, .yt-ad-tile-renderer, ytm-ad-landing-page-spec, .ad-container, .ad-image, .ad-showing, .ad-interrupting, yt-mealbar-promo-renderer, #masthead-ad, .video-ads, .ytp-ad-player-overlay, .ytp-ad-player-overlay-layout-entry, ytd-promoted-video-renderer, ytd-banner-promo-renderer, ytd-rich-grid-ad-slot, ytm-promoted-video-renderer, .ytm-ad-survey-renderer, .ytp-ad-player-overlay-flyout-wrapper, .ytp-ad-simple-ad-header, .ytp-ad-overlay-image, #player-ads { display: none !important; visibility: hidden !important; height: 0 !important; min-height: 0 !important; width: 0 !important; opacity: 0 !important; pointer-events: none !important; } ';
         if (!document.getElementById('sway-yt-ad-blocker-style')) {
             document.head.appendChild(yStyle);
         }
@@ -650,6 +659,55 @@ private fun getYtEnhancerJs(isBackground: Boolean, isSponsorBlock: Boolean, isAu
                 .catch(() => {});
         }
 
+        function runAdSkipper() {
+            const video = document.querySelector('video');
+            if (!video) return;
+
+            const player = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
+            const hasAdClass = player && (player.classList.contains('ad-showing') || player.classList.contains('ad-interrupting'));
+            const isShowingAd = hasAdClass || document.querySelector('.ad-showing') !== null || document.querySelector('.ad-interrupting') !== null;
+            
+            const skipBtn = document.querySelector(
+                '.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytp-ad-skip-button-text, ' +
+                '.ytp-ad-skip-button-container, .ytp-ad-skip-button-hover, button.ytp-ad-skip-button, ' +
+                '.ytp-ad-skip-button-slot, ytm-ad-skip-button, button[class*="skip"], [class*="skip-button"]'
+            );
+
+            if (isShowingAd || skipBtn) {
+                video.muted = true;
+                video.playbackRate = 16.0;
+                if (video.duration && isFinite(video.duration)) {
+                    video.currentTime = video.duration - 0.05;
+                }
+                if (player && typeof player.skipAd === 'function') {
+                    player.skipAd();
+                }
+                if (skipBtn) {
+                    try { 
+                        skipBtn.click(); 
+                        showSwayMsg("Реклама пропущена ✨");
+                    } catch(e) {}
+                }
+                reportAdBlocked();
+            }
+
+            const closeBtn = document.querySelector('.ytp-ad-overlay-close-container button, .ytp-ad-image-overlay .ytp-ad-overlay-close-button, .ytp-ad-overlay-close-button');
+            if (closeBtn) {
+                try { 
+                    closeBtn.click(); 
+                    reportAdBlocked();
+                } catch(e) {}
+            }
+        }
+
+        const pageObserver = new MutationObserver(() => {
+            runAdSkipper();
+        });
+        pageObserver.observe(document.body || document.documentElement, {
+            childList: true,
+            subtree: true
+        });
+
         setInterval(() => {
             const currentVid = getVideoId();
             if (currentVid && currentVid !== lastVideoId) {
@@ -661,6 +719,8 @@ private fun getYtEnhancerJs(isBackground: Boolean, isSponsorBlock: Boolean, isAu
             const video = document.querySelector('video');
             if (!video) return;
 
+            runAdSkipper();
+
             if (isSponsorBlockEnabled && sponsorSegments.length > 0) {
                 const currentT = video.currentTime;
                 for (let i = 0; i < sponsorSegments.length; i++) {
@@ -669,34 +729,10 @@ private fun getYtEnhancerJs(isBackground: Boolean, isSponsorBlock: Boolean, isAu
                     if (currentT >= start && currentT < end - 0.2) {
                         video.currentTime = end;
                         showSwayMsg("Пропуск спонсорской вставки (SponsorBlock) ⏭️");
+                        reportAdBlocked();
                         break;
                     }
                 }
-            }
-
-            const adOverlay = document.querySelector('.ytp-ad-player-overlay, .ytp-ad-message-container, .ytp-ad-overlay-container, .ytp-ad-compact-layout, .ad-showing, .ad-interrupting, .ytp-ad-images, .promo-showing, .ytp-ad-overlay-slot, ytm-companion-ad-renderer, .yt-ad-tile-renderer');
-            const skipBtn = document.querySelector('.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytp-ad-skip-button-text, .ytp-ad-skip-button-container, .ytp-ad-skip-button-hover, button.ytp-ad-skip-button, .ytp-ad-skip-button-slot, ytm-ad-skip-button');
-            const videoIsAd = document.querySelector('.ad-showing video, video.ad-showing, .ad-interrupting video');
-            
-            if (adOverlay || skipBtn || videoIsAd) {
-                video.muted = true;
-                video.playbackRate = 16.0;
-                if (video.duration && isFinite(video.duration)) {
-                    video.currentTime = video.duration - 0.1;
-                }
-                const player = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
-                if (player && typeof player.skipAd === 'function') {
-                    player.skipAd();
-                }
-                if (skipBtn) {
-                    try { skipBtn.click(); } catch(e) {}
-                    showSwayMsg("Реклама пропущена ✨");
-                }
-            }
-
-            const closeBtn = document.querySelector('.ytp-ad-overlay-close-container button, .ytp-ad-image-overlay .ytp-ad-overlay-close-button, .ytp-ad-overlay-close-button');
-            if (closeBtn) {
-                try { closeBtn.click(); } catch(e) {}
             }
 
             const player = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
@@ -2179,6 +2215,9 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                                                 viewModel.parseAndAddDiscoveredMedia(json)
                                             },
                                             onError = { _ -> },
+                                            onAdBlocked = {
+                                                viewModel.incrementBlockedAdsCount()
+                                            },
                                             onSpaUrlChanged = { newUrl ->
                                                 coroutineScope.launch {
                                                     viewModel.updateUrl(newUrl)

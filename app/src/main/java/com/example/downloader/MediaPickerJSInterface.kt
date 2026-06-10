@@ -6,8 +6,15 @@ import android.util.Log
 class MediaPickerJSInterface(
     private val onDiscovered: (jsonArrayStr: String) -> Unit,
     private val onError: (message: String) -> Unit,
-    private val onSpaUrlChanged: ((url: String) -> Unit)? = null
+    private val onSpaUrlChanged: ((url: String) -> Unit)? = null,
+    private val onAdBlocked: (() -> Unit)? = null
 ) {
+    @JavascriptInterface
+    fun reportAdBlocked() {
+        Log.d("MediaPickerJSInterface", "Ad blocked or skipped reported from JS")
+        onAdBlocked?.invoke()
+    }
+
     @JavascriptInterface
     fun onMediaDiscovered(jsonStr: String?) {
         if (jsonStr == null) return
