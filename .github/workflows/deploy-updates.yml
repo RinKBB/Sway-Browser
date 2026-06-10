@@ -1,0 +1,77 @@
+name: Build and Auto-Deploy Sway Browser Updates
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-deploy:
+    name: Build APK and Deploy Update Metadata
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Grant Execute Permission to Gradle Wrapper
+        run: chmod +x gradlew
+
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug
+
+      - name: Generate update.json
+        run: |
+          VERSION_NAME=$(grep "versionName =" app/build.gradle.kts | head -n 1 | awk -F '"' '{print $2}')
+          VERSION_CODE=$(grep "versionCode =" app/build.gradle.kts | head -n 1 | tr -d -c '0-9')
+          
+          # Use fallbacks if grep failed
+          if [ -z "$VERSION_NAME" ]; then VERSION_NAME="2.0.3-f"; fi
+          if [ -z "$VERSION_CODE" ]; then VERSION_CODE="2"; fi
+          
+          cat <<EOF > update.json
+          {
+            "versionCode": $VERSION_CODE,
+            "versionName": "$VERSION_NAME",
+            "apkUrl": "https://raw.githubusercontent.com/${{ github.repository }}/updates/app-debug.apk",
+            "changeLog": "Критическое обновление Sway Browser: исправление ошибок фонового режима, блокировщика рекламы, улучшение производительности и стабильности!"
+          }
+          EOF
+          echo "Generated update.json successfully:"
+          cat update.json
+
+      - name: Deploy to updates branch
+        run: |
+          # Keep compiled products
+          cp app/build/outputs/apk/debug/app-debug.apk ./app-debug.apk
+          cp update.json ./update.json
+          
+          # Setup git
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Checkout or create updates branch
+          git checkout --orphan updates
+          git rm -rf .
+          
+          # Move Compiled Files back to root
+          mv ./app-debug.apk ./app-debug.apk
+          mv ./update.json ./update.json
+          
+          # Commit and Push
+          git add app-debug.apk update.json
+          git commit -m "Auto-deploy updates: version $VERSION_NAME"
+          git push -f origin updates

@@ -11,11 +11,11 @@ android {
   compileSdk { version = release(36) { minorApiLevel = 1 } }
 
   defaultConfig {
-    applicationId = "com.rinkbb.swaybrowser"
+    applicationId = "com.aistudio.mediadownloader.vkwqpt"
     minSdk = 24
     targetSdk = 36
     versionCode = 1
-    versionName = "2.0.3"
+    versionName = "1.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
