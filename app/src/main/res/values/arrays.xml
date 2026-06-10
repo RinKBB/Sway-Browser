@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <array name="file_paths">
+        <item>@xml/file_paths</item>
+    </array>
+</resources>
