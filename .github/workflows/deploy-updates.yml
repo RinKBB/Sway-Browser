@@ -25,7 +25,11 @@ jobs:
         with:
           distribution: 'zulu'
           java-version: '17'
-          cache: 'gradle'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
 
       - name: Decode Debug Keystore
         run: |
@@ -36,11 +40,8 @@ jobs:
             echo "debug.keystore.base64 not found, relying on default"
           fi
 
-      - name: Grant Execute Permission to Gradle Wrapper
-        run: chmod +x gradlew
-
       - name: Build Debug APK
-        run: ./gradlew assembleDebug
+        run: gradle assembleDebug
 
       - name: Generate update.json
         run: |
