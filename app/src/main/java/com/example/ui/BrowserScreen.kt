@@ -73,6 +73,8 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.ui.focus.onFocusChanged
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.example.BackgroundPlayWebView
+import com.example.BackgroundAudioService
 import com.example.downloader.MediaPickerJSInterface
 import com.example.model.MediaItem
 import com.example.model.SearchImage
@@ -771,6 +773,79 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
     val isYtBackgroundEnabled by viewModel.isYtBackgroundEnabled.collectAsState()
     val isSponsorBlockEnabled by viewModel.isSponsorBlockEnabled.collectAsState()
     val isYtAutoMaxQualityEnabled by viewModel.isYtAutoMaxQualityEnabled.collectAsState()
+
+    // Pass the setting state to BackgroundPlayWebView
+    LaunchedEffect(isYtBackgroundEnabled) {
+        persistentWebView.setKeepPlayingInBackground(isYtBackgroundEnabled)
+    }
+
+    // Manage background audio service when app changes focus/stops
+    DisposableEffect(key1 = localContext, key2 = isYtBackgroundEnabled) {
+        val activity = localContext as? androidx.activity.ComponentActivity
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (isYtBackgroundEnabled) {
+                if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) {
+                    // App went to background / screen lock. Start Foreground Service to hold CPU/thread wake lock
+                    try {
+                        val serviceIntent = android.content.Intent(localContext, BackgroundAudioService::class.java)
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                            localContext.startForegroundService(serviceIntent)
+                        } else {
+                            localContext.startService(serviceIntent)
+                        }
+                    } catch (e: Exception) {}
+                } else if (event == androidx.lifecycle.Lifecycle.Event.ON_START) {
+                    // App came back to foreground. Stop the service.
+                    try {
+                        val serviceIntent = android.content.Intent(localContext, BackgroundAudioService::class.java)
+                        localContext.stopService(serviceIntent)
+                    } catch (e: Exception) {}
+                }
+            }
+        }
+
+        activity?.lifecycle?.addObserver(observer)
+
+        onDispose {
+            activity?.lifecycle?.removeObserver(observer)
+            // Stop service when composable is destroyed
+            try {
+                val serviceIntent = android.content.Intent(localContext, BackgroundAudioService::class.java)
+                localContext.stopService(serviceIntent)
+            } catch (e: Exception) {}
+        }
+    }
+
+    // Handle pause signal from Background Service notification button click
+    DisposableEffect(key1 = localContext) {
+        val receiver = object : android.content.BroadcastReceiver() {
+            override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
+                if (intent?.action == BackgroundAudioService.ACTION_SERVICE_STOPPED) {
+                    // User explicitly pressed "Stop" on background playback notification
+                    webViewRef?.evaluateJavascript("""
+                        (function() {
+                            const video = document.querySelector('video');
+                            if (video) {
+                                video.pause();
+                            }
+                        })();
+                    """.trimIndent(), null)
+                }
+            }
+        }
+        val filter = android.content.IntentFilter(BackgroundAudioService.ACTION_SERVICE_STOPPED)
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            localContext.registerReceiver(receiver, filter, android.content.Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            localContext.registerReceiver(receiver, filter)
+        }
+
+        onDispose {
+            try {
+                localContext.unregisterReceiver(receiver)
+            } catch (e: Exception) {}
+        }
+    }
 
     // Фоновый режим для YouTube / Внешний триггер активности WebView
     LaunchedEffect(webViewRef, isYtBackgroundEnabled) {
@@ -1695,7 +1770,8 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                     ) {
                         AndroidView(
                             factory = { ctx ->
-                                WebView(ctx).apply {
+                                (persistentWebView.parent as? android.view.ViewGroup)?.removeView(persistentWebView)
+                                persistentWebView.apply {
                                     // Enable safe standard cookies and session management
                                     try {
                                         CookieManager.getInstance().setAcceptCookie(true)

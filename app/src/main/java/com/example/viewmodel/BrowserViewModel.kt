@@ -74,13 +74,13 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     val isYtAutoMaxQualityEnabled = MutableStateFlow(prefs.getBoolean("yt_auto_max_quality_enabled", true))
 
     // Cached persistent WebView to enable background tab audio & prevent state reload when switching tabs/menus
-    var cachedWebView: android.webkit.WebView? = null
+    var cachedWebView: com.example.BackgroundPlayWebView? = null
 
     @android.annotation.SuppressLint("SetJavaScriptEnabled")
-    fun getOrCreateWebView(context: android.content.Context): android.webkit.WebView {
+    fun getOrCreateWebView(context: android.content.Context): com.example.BackgroundPlayWebView {
         if (cachedWebView == null) {
             // Use application context to avoid activity memory leaks
-            cachedWebView = android.webkit.WebView(context.applicationContext)
+            cachedWebView = com.example.BackgroundPlayWebView(context.applicationContext)
         }
         return cachedWebView!!
     }
