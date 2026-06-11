@@ -27,8 +27,39 @@ data class TabEntity(
     val url: String,
     val isIncognito: Boolean = false,
     val isActive: Boolean = false,
-    val timestamp: Long = System.currentTimeMillis()
+    val timestamp: Long = System.currentTimeMillis(),
+    val historyStackJson: String = "[]",
+    val historyIndex: Int = -1,
+    val isBrowsing: Boolean = false
 )
+
+data class TabHistoryItem(val url: String, val title: String)
+
+fun TabEntity.getHistoryList(): List<TabHistoryItem> {
+    if (historyStackJson.isBlank() || historyStackJson == "[]") return emptyList()
+    return try {
+        val array = org.json.JSONArray(historyStackJson)
+        val list = mutableListOf<TabHistoryItem>()
+        for (i in 0 until array.length()) {
+            val obj = array.getJSONObject(i)
+            list.add(TabHistoryItem(obj.optString("url", ""), obj.optString("title", "")))
+        }
+        list
+    } catch (e: Exception) {
+        emptyList()
+    }
+}
+
+fun TabEntity.withHistoryList(list: List<TabHistoryItem>, index: Int): TabEntity {
+    val array = org.json.JSONArray()
+    list.forEach {
+        val obj = org.json.JSONObject()
+        obj.put("url", it.url)
+        obj.put("title", it.title)
+        array.put(obj)
+    }
+    return this.copy(historyStackJson = array.toString(), historyIndex = index)
+}
 
 @Entity(tableName = "downloads")
 data class DownloadEntity(
@@ -108,7 +139,7 @@ interface BrowserDao {
 
 @Database(
     entities = [BookmarkEntity::class, HistoryEntity::class, TabEntity::class, DownloadEntity::class],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class BrowserDatabase : RoomDatabase() {

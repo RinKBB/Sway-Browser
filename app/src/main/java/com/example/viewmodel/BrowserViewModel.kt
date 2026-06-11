@@ -239,8 +239,17 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     private val _canGoForward = MutableStateFlow(false)
     val canGoForward: StateFlow<Boolean> = _canGoForward
 
+    private val _canRefresh = MutableStateFlow(false)
+    val canRefresh: StateFlow<Boolean> = _canRefresh
+
+    private val _isBrowsingActive = MutableStateFlow(false)
+    val isBrowsingActive: StateFlow<Boolean> = _isBrowsingActive
+
     private val _activeTabId = MutableStateFlow<String?>(null)
     val activeTabId: StateFlow<String?> = _activeTabId
+
+    // We hold the saved WebState Bundles for all tabs in memory in the ViewModel
+    private val tabWebStates = java.util.concurrent.ConcurrentHashMap<String, android.os.Bundle>()
 
     // Browser User Agent
     var browserUserAgent: String = ""
@@ -272,18 +281,22 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             dao.getAllTabs().first().let { currentTabs ->
                 if (currentTabs.isEmpty()) {
                     val defaultTabs = listOf(
-                        TabEntity("1", "Sway Browser — Главная", savedHome, isIncognito = false, isActive = true),
-                        TabEntity("2", "Material 3", "https://m3.material.io", isIncognito = false, isActive = false),
-                        TabEntity("3", "GitHub", "https://github.com", isIncognito = false, isActive = false)
+                        TabEntity("1", "Sway Browser — Главная", savedHome, isIncognito = false, isActive = true, isBrowsing = true, historyIndex = 0, historyStackJson = "[{\"url\":\"$savedHome\",\"title\":\"Sway Browser — Главная\"}]"),
+                        TabEntity("2", "Material 3", "https://m3.material.io", isIncognito = false, isActive = false, isBrowsing = true, historyIndex = 0, historyStackJson = "[{\"url\":\"https://m3.material.io\",\"title\":\"Material 3\"}]"),
+                        TabEntity("3", "GitHub", "https://github.com", isIncognito = false, isActive = false, isBrowsing = true, historyIndex = 0, historyStackJson = "[{\"url\":\"https://github.com\",\"title\":\"GitHub\"}]")
                     )
                     defaultTabs.forEach { dao.insertTab(it) }
                     _activeTabId.value = "1"
                     _currentUrl.value = savedHome
+                    _isBrowsingActive.value = true
+                    updateNavigationState(defaultTabs[0])
                 } else {
                     val active = currentTabs.find { it.isActive } ?: currentTabs.first()
                     _activeTabId.value = active.id
                     _currentUrl.value = active.url
                     _webTitle.value = active.title
+                    _isBrowsingActive.value = active.isBrowsing
+                    updateNavigationState(active)
                 }
             }
         }
@@ -291,74 +304,220 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
 
     // Tab Operations
-    fun selectTab(tabId: String) {
-        viewModelScope.launch(Dispatchers.IO) {
-            val currentTabs = dao.getAllTabs().first()
-            val tabToActivate = currentTabs.find { it.id == tabId } ?: return@launch
-            
-            _activeTabId.value = tabId
-            _currentUrl.value = tabToActivate.url
-            _webTitle.value = tabToActivate.title
-            
-            currentTabs.forEach {
-                val updated = it.copy(isActive = (it.id == tabId))
-                dao.updateTab(updated)
-            }
-        }
+    fun updateNavigationState(tab: TabEntity) {
+        val historyList = tab.getHistoryList()
+        val index = tab.historyIndex
+        _canGoBack.value = index > 0 && tab.isBrowsing
+        _canGoForward.value = index < historyList.size - 1 && index >= 0 && tab.isBrowsing
+        _canRefresh.value = tab.isBrowsing && tab.url.isNotBlank() && tab.url != "about:blank"
+        _isBrowsingActive.value = tab.isBrowsing
     }
 
-    fun addTab(title: String, url: String, isIncognito: Boolean) {
+    fun setBrowsing(active: Boolean) {
+        _isBrowsingActive.value = active
         viewModelScope.launch(Dispatchers.IO) {
-            val tabId = java.util.UUID.randomUUID().toString()
-            val newTab = TabEntity(
-                id = tabId,
-                title = title,
-                url = url,
-                isIncognito = isIncognito,
-                isActive = true
-            )
-            val currentTabs = dao.getAllTabs().first()
-            currentTabs.forEach {
-                if (it.isActive) {
-                    dao.updateTab(it.copy(isActive = false))
+            val activeId = _activeTabId.value
+            if (activeId != null) {
+                val tab = dao.getAllTabs().first().find { it.id == activeId }
+                if (tab != null && tab.isBrowsing != active) {
+                    val updated = tab.copy(isBrowsing = active)
+                    dao.updateTab(updated)
+                    updateNavigationState(updated)
                 }
             }
-            dao.insertTab(newTab)
-            
-            _activeTabId.value = tabId
-            _currentUrl.value = url
-            _webTitle.value = title
         }
     }
 
-    fun closeTab(tabId: String) {
+    fun selectTab(tabId: String) = selectTab(tabId, null)
+
+    fun selectTab(tabId: String, currentWebView: android.webkit.WebView? = null) {
+        viewModelScope.launch(Dispatchers.Main) {
+            val oldTabId = _activeTabId.value
+            if (oldTabId != null && currentWebView != null) {
+                val bundle = android.os.Bundle()
+                currentWebView.saveState(bundle)
+                tabWebStates[oldTabId] = bundle
+            }
+
+            kotlinx.coroutines.withContext(Dispatchers.IO) {
+                val currentTabs = dao.getAllTabs().first()
+                val tabToActivate = currentTabs.find { it.id == tabId } ?: return@withContext
+                
+                _activeTabId.value = tabId
+                _currentUrl.value = tabToActivate.url
+                _webTitle.value = tabToActivate.title
+                _isBrowsingActive.value = tabToActivate.isBrowsing
+
+                currentTabs.forEach {
+                    val updated = it.copy(isActive = (it.id == tabId))
+                    dao.updateTab(updated)
+                }
+
+                updateNavigationState(tabToActivate)
+
+                kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    if (currentWebView != null) {
+                        val savedBundle = tabWebStates[tabId]
+                        if (savedBundle != null) {
+                            currentWebView.restoreState(savedBundle)
+                        } else {
+                            currentWebView.clearHistory()
+                            if (tabToActivate.url.isNotBlank() && tabToActivate.url != "about:blank") {
+                                currentWebView.loadUrl(tabToActivate.url)
+                            } else {
+                                currentWebView.loadUrl("about:blank")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fun addTab(title: String, url: String, isIncognito: Boolean) = addTab(title, url, isIncognito, null)
+
+    fun addTab(title: String, url: String, isIncognito: Boolean, currentWebView: android.webkit.WebView? = null) {
+        viewModelScope.launch(Dispatchers.Main) {
+            val oldTabId = _activeTabId.value
+            if (oldTabId != null && currentWebView != null) {
+                val bundle = android.os.Bundle()
+                currentWebView.saveState(bundle)
+                tabWebStates[oldTabId] = bundle
+            }
+
+            kotlinx.coroutines.withContext(Dispatchers.IO) {
+                val tabId = java.util.UUID.randomUUID().toString()
+                
+                val initialHistory = mutableListOf<TabHistoryItem>()
+                val initialIndex: Int
+                val isBrowsingPage: Boolean
+                
+                if (url.isNotBlank() && url != "about:blank") {
+                    initialHistory.add(TabHistoryItem(url, title))
+                    initialIndex = 0
+                    isBrowsingPage = true
+                } else {
+                    initialIndex = -1
+                    isBrowsingPage = false
+                }
+                
+                val array = org.json.JSONArray()
+                initialHistory.forEach {
+                    val obj = org.json.JSONObject()
+                    obj.put("url", it.url)
+                    obj.put("title", it.title)
+                    array.put(obj)
+                }
+
+                val newTab = TabEntity(
+                    id = tabId,
+                    title = title,
+                    url = url,
+                    isIncognito = isIncognito,
+                    isActive = true,
+                    historyStackJson = array.toString(),
+                    historyIndex = initialIndex,
+                    isBrowsing = isBrowsingPage
+                )
+                
+                val currentTabs = dao.getAllTabs().first()
+                currentTabs.forEach {
+                    if (it.isActive) {
+                        dao.updateTab(it.copy(isActive = false))
+                    }
+                }
+                dao.insertTab(newTab)
+                
+                _activeTabId.value = tabId
+                _currentUrl.value = url
+                _webTitle.value = title
+                _isBrowsingActive.value = isBrowsingPage
+
+                updateNavigationState(newTab)
+
+                kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    if (currentWebView != null) {
+                        currentWebView.clearHistory()
+                        if (url.isNotBlank() && url != "about:blank") {
+                            currentWebView.loadUrl(url)
+                        } else {
+                            currentWebView.loadUrl("about:blank")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fun closeTab(tabId: String) = closeTab(tabId, null)
+
+    fun closeTab(tabId: String, currentWebView: android.webkit.WebView? = null) {
         viewModelScope.launch(Dispatchers.IO) {
             val currentTabs = dao.getAllTabs().first()
             val tabToClose = currentTabs.find { it.id == tabId } ?: return@launch
             
             dao.deleteTabById(tabId)
+            tabWebStates.remove(tabId)
             
             if (tabToClose.isActive) {
                 val remaining = currentTabs.filter { it.id != tabId }
                 if (remaining.isNotEmpty()) {
-                    val nextToActivate = remaining.first()
+                    val closeIndex = currentTabs.indexOf(tabToClose)
+                    val nextToActivate = if (closeIndex < remaining.size) {
+                        remaining[closeIndex]
+                    } else {
+                        remaining[remaining.size - 1]
+                    }
+                    
                     dao.updateTab(nextToActivate.copy(isActive = true))
                     _activeTabId.value = nextToActivate.id
                     _currentUrl.value = nextToActivate.url
                     _webTitle.value = nextToActivate.title
+                    _isBrowsingActive.value = nextToActivate.isBrowsing
+
+                    updateNavigationState(nextToActivate)
+
+                    kotlinx.coroutines.withContext(Dispatchers.Main) {
+                        if (currentWebView != null) {
+                            val savedBundle = tabWebStates[nextToActivate.id]
+                            if (savedBundle != null) {
+                                currentWebView.restoreState(savedBundle)
+                            } else {
+                                currentWebView.clearHistory()
+                                if (nextToActivate.url.isNotBlank() && nextToActivate.url != "about:blank") {
+                                    currentWebView.loadUrl(nextToActivate.url)
+                                } else {
+                                    currentWebView.loadUrl("about:blank")
+                                }
+                            }
+                        }
+                    }
                 } else {
                     val fallbackId = java.util.UUID.randomUUID().toString()
                     val fallback = TabEntity(
                         id = fallbackId,
                         title = "Sway Browser — Главная",
-                        url = "https://images.google.com",
+                        url = "",
                         isIncognito = false,
-                        isActive = true
+                        isActive = true,
+                        isBrowsing = false,
+                        historyStackJson = "[]",
+                        historyIndex = -1
                     )
                     dao.insertTab(fallback)
                     _activeTabId.value = fallbackId
                     _currentUrl.value = fallback.url
                     _webTitle.value = fallback.title
+                    _isBrowsingActive.value = false
+
+                    updateNavigationState(fallback)
+
+                    kotlinx.coroutines.withContext(Dispatchers.Main) {
+                        if (currentWebView != null) {
+                            currentWebView.clearHistory()
+                            currentWebView.loadUrl("about:blank")
+                        }
+                    }
                 }
             }
         }
@@ -447,7 +606,9 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             if (activeId != null) {
                 val tab = dao.getAllTabs().first().find { it.id == activeId }
                 if (tab != null && tab.url != url) {
-                    dao.updateTab(tab.copy(url = url))
+                    val isBrowsingPage = url.isNotBlank() && url != "about:blank"
+                    dao.updateTab(tab.copy(url = url, isBrowsing = isBrowsingPage))
+                    _isBrowsingActive.value = isBrowsingPage
                 }
             }
         }
@@ -458,11 +619,21 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun updateWebNavigation(title: String, canGoBack: Boolean, canGoForward: Boolean) {
+        updateWebNavigation(title, canGoBack, canGoForward, null)
+    }
+
+    fun updateWebNavigation(
+        title: String,
+        canGoBack: Boolean,
+        canGoForward: Boolean,
+        backForwardList: android.webkit.WebBackForwardList? = null
+    ) {
         _webTitle.value = title
         _canGoBack.value = canGoBack
         _canGoForward.value = canGoForward
+        _canRefresh.value = _currentUrl.value.isNotEmpty() && _currentUrl.value != "about:blank"
 
-        if (title.isNotEmpty()) {
+        if (title.isNotEmpty() && _currentUrl.value.isNotBlank() && _currentUrl.value != "about:blank") {
             addToHistory(title, _currentUrl.value)
         }
 
@@ -470,8 +641,28 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             val activeId = _activeTabId.value
             if (activeId != null) {
                 val tab = dao.getAllTabs().first().find { it.id == activeId }
-                if (tab != null && (tab.title != title || tab.url != _currentUrl.value)) {
-                    dao.updateTab(tab.copy(title = title, url = _currentUrl.value))
+                if (tab != null) {
+                    val isBrowsingPage = _currentUrl.value.isNotEmpty() && _currentUrl.value != "about:blank"
+                    var updatedTab = tab.copy(
+                        title = title,
+                        url = _currentUrl.value,
+                        isBrowsing = isBrowsingPage
+                    )
+                    if (backForwardList != null) {
+                        val size = backForwardList.size
+                        val currentIndex = backForwardList.currentIndex
+                        val list = mutableListOf<TabHistoryItem>()
+                        for (i in 0 until size) {
+                            val item = backForwardList.getItemAtIndex(i)
+                            if (item != null) {
+                                list.add(TabHistoryItem(item.url, item.title ?: item.url))
+                            }
+                        }
+                        updatedTab = updatedTab.withHistoryList(list, currentIndex)
+                    }
+                    dao.updateTab(updatedTab)
+                    _isBrowsingActive.value = isBrowsingPage
+                    updateNavigationState(updatedTab)
                 }
             }
         }
@@ -939,6 +1130,10 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     fun dismissUpdateBanner() {
         updateBannerDismissed.value = true
+        val info = updateInfo.value
+        if (info != null && info.hasUpdate) {
+            prefs.edit().putInt("dismissed_update_version", info.latestVersionCode).apply()
+        }
     }
 
     fun getCurrentVersionCode(): Int {
@@ -1036,6 +1231,8 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                         val log = json.optString("changeLog", "")
 
                         if (code > currentCode) {
+                            val dismissedCode = prefs.getInt("dismissed_update_version", 0)
+                            updateBannerDismissed.value = (code == dismissedCode)
                             updateInfo.value = UpdateInfo(
                                 hasUpdate = true,
                                 latestVersionName = name,
@@ -1061,6 +1258,8 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                         // Fallback to simulated update so the updater is fully testable and works immediately when explicitly simulated
                         val fallbackVersionCode = if (currentCode >= 2) currentCode + 1 else 2
                         val hasFallbackUpdate = fallbackVersionCode > currentCode
+                        val dismissedCode = prefs.getInt("dismissed_update_version", 0)
+                        updateBannerDismissed.value = (fallbackVersionCode == dismissedCode)
                         updateInfo.value = UpdateInfo(
                             hasUpdate = hasFallbackUpdate,
                             latestVersionName = "2.1.$fallbackVersionCode",
@@ -1091,6 +1290,8 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 if (forceSimulate) {
                     val fallbackVersionCode = if (currentCode >= 2) currentCode + 1 else 2
                     val hasFallbackUpdate = fallbackVersionCode > currentCode
+                    val dismissedCode = prefs.getInt("dismissed_update_version", 0)
+                    updateBannerDismissed.value = (fallbackVersionCode == dismissedCode)
                     updateInfo.value = UpdateInfo(
                         hasUpdate = hasFallbackUpdate,
                         latestVersionName = "2.1.$fallbackVersionCode",

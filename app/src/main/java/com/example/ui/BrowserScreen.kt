@@ -525,6 +525,104 @@ private fun getYtEnhancerJs(isBackground: Boolean, isSponsorBlock: Boolean, isAu
         } catch(e) {}
     }
 
+    // Advanced API-level AdBlock for YouTube (Intercepting player/next response JSON to delete ads entirely)
+    try {
+        const originFetch = window.fetch;
+        window.fetch = async function(...args) {
+            const url = args[0];
+            if (typeof url === 'string' && (url.includes('/youtubei/v1/player') || url.includes('/youtubei/v1/next'))) {
+                try {
+                    const response = await originFetch.apply(this, args);
+                    const rawText = await response.text();
+                    let json = JSON.parse(rawText);
+                    let changed = false;
+                    
+                    if (json.adPlacements) {
+                        delete json.adPlacements;
+                        changed = true;
+                    }
+                    if (json.playerAds) {
+                        delete json.playerAds;
+                        changed = true;
+                    }
+                    if (json.adSlots) {
+                        delete json.adSlots;
+                        changed = true;
+                    }
+                    if (json.adSafetyReason) {
+                        delete json.adSafetyReason;
+                        changed = true;
+                    }
+                    
+                    if (changed) {
+                        reportAdBlocked();
+                    }
+                    
+                    return new Response(JSON.stringify(json), {
+                        status: response.status,
+                        statusText: response.statusText,
+                        headers: response.headers
+                    });
+                } catch (e) {}
+            }
+            return originFetch.apply(this, args);
+        };
+
+        const originOpen = XMLHttpRequest.prototype.open;
+        XMLHttpRequest.prototype.open = function(method, url) {
+            this._url = url;
+            return originOpen.apply(this, arguments);
+        };
+
+        const originSend = XMLHttpRequest.prototype.send;
+        XMLHttpRequest.prototype.send = function() {
+            const xhr = this;
+            if (xhr._url && (xhr._url.includes('/youtubei/v1/player') || xhr._url.includes('/youtubei/v1/next'))) {
+                const originOnReadyStateChange = xhr.onreadystatechange;
+                xhr.onreadystatechange = function() {
+                    if (xhr.readyState === 4) {
+                        try {
+                            let responseData = xhr.responseText;
+                            let json = JSON.parse(responseData);
+                            let changed = false;
+                            if (json.adPlacements) { delete json.adPlacements; changed = true; }
+                            if (json.playerAds) { delete json.playerAds; changed = true; }
+                            if (json.adSlots) { delete json.adSlots; changed = true; }
+                            if (json.adSafetyReason) { delete json.adSafetyReason; changed = true; }
+                            if (changed) {
+                                Object.defineProperty(xhr, 'responseText', { value: JSON.stringify(json), configurable: true });
+                                Object.defineProperty(xhr, 'response', { value: JSON.stringify(json), configurable: true });
+                                reportAdBlocked();
+                            }
+                        } catch(e) {}
+                    }
+                    if (originOnReadyStateChange) {
+                        originOnReadyStateChange.apply(this, arguments);
+                    }
+                };
+            }
+            return originSend.apply(this, arguments);
+        };
+
+        if (window.ytInitialPlayerResponse) {
+            if (window.ytInitialPlayerResponse.adPlacements) { delete window.ytInitialPlayerResponse.adPlacements; reportAdBlocked(); }
+            if (window.ytInitialPlayerResponse.playerAds) { delete window.ytInitialPlayerResponse.playerAds; reportAdBlocked(); }
+        }
+        let initialPlayerResponse = window.ytInitialPlayerResponse;
+        Object.defineProperty(window, 'ytInitialPlayerResponse', {
+            get: function() { return initialPlayerResponse; },
+            set: function(val) {
+                if (val) {
+                    if (val.adPlacements) { delete val.adPlacements; reportAdBlocked(); }
+                    if (val.playerAds) { delete val.playerAds; reportAdBlocked(); }
+                    if (val.adSlots) { delete val.adSlots; reportAdBlocked(); }
+                }
+                initialPlayerResponse = val;
+            },
+            configurable: true
+        });
+    } catch(e) {}
+
     try {
         if (isBackgroundPlayEnabled) {
             Object.defineProperty(document, 'hidden', { get: function() { return false; }, configurable: true });
@@ -767,6 +865,9 @@ enum class FabTrajectoryMode {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BrowserScreen(viewModel: BrowserViewModel) {
+    var customView by remember { mutableStateOf<android.view.View?>(null) }
+    var customViewCallback by remember { mutableStateOf<android.webkit.WebChromeClient.CustomViewCallback?>(null) }
+
     val l10n = LocalAppStrings.current
     val localContext = LocalContext.current
     val currentUrl by viewModel.currentUrl.collectAsState()
@@ -775,6 +876,7 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
     val rawMediaItems by viewModel.rawMediaItems.collectAsState()
     val canGoBack by viewModel.canGoBack.collectAsState()
     val canGoForward by viewModel.canGoForward.collectAsState()
+    val canRefresh by viewModel.canRefresh.collectAsState()
 
     // Draggable FAB with Trajectory configurations & animations
     var fabTrajectoryMode by remember { mutableStateOf(FabTrajectoryMode.SNAP_EDGE) }
@@ -942,7 +1044,18 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
 
     // Bottom Navigation States
     var currentTabItem by remember { mutableStateOf(0) } // 0: Главная, 1: Поиск, 2: Вкладки, 3: Сохранено, 4: Меню
-    var isBrowsing by remember { mutableStateOf(false) } // Default to false so they see New Tab Screen first
+    val isBrowsingActive by viewModel.isBrowsingActive.collectAsState()
+    var isBrowsing by remember(isBrowsingActive) { mutableStateOf(isBrowsingActive) }
+    LaunchedEffect(isBrowsingActive) {
+        if (isBrowsing != isBrowsingActive) {
+            isBrowsing = isBrowsingActive
+        }
+    }
+    LaunchedEffect(isBrowsing) {
+        if (isBrowsing != isBrowsingActive) {
+            viewModel.setBrowsing(isBrowsing)
+        }
+    }
     var isPrivateMode by remember { mutableStateOf(false) }
     
     val tabs by viewModel.tabs.collectAsState()
@@ -1294,8 +1407,12 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
     }
 
     // Back nav management
-    BackHandler(enabled = isMediaPanelVisible || currentTabItem != 0 || isBrowsing) {
-        if (isMediaPanelVisible) {
+    BackHandler(enabled = customView != null || isMediaPanelVisible || currentTabItem != 0 || isBrowsing) {
+        if (customView != null) {
+            customViewCallback?.onCustomViewHidden()
+            customView = null
+            customViewCallback = null
+        } else if (isMediaPanelVisible) {
             isMediaPanelVisible = false
         } else if (currentTabItem != 0) {
             currentTabItem = 0
@@ -1719,9 +1836,14 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                                 onClick = {
                                     webViewRef?.reload()
                                 },
+                                enabled = canRefresh,
                                 modifier = Modifier.size(38.dp)
                             ) {
-                                Icon(Icons.Default.Refresh, contentDescription = "Обновить")
+                                Icon(
+                                    Icons.Default.Refresh,
+                                    contentDescription = "Обновить",
+                                    tint = if (canRefresh) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                )
                             }
                         }
                     }
@@ -1763,10 +1885,36 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                             currentTabItem = index
                         },
                         icon = {
-                            Icon(
-                                imageVector = if (isSelected) filledIcon else outlinedIcon,
-                                contentDescription = label
-                            )
+                            val iconImage = if (isSelected) filledIcon else outlinedIcon
+                            if (index == 2) {
+                                val currentTabsCount = tabs.filter { it.isIncognito == isPrivateMode }.size
+                                BadgedBox(
+                                    badge = {
+                                        if (currentTabsCount > 0) {
+                                            Badge(
+                                                containerColor = if (isPrivateMode) Color(0xFFD0BCFF) else MaterialTheme.colorScheme.primary,
+                                                contentColor = if (isPrivateMode) Color(0xFF381E72) else MaterialTheme.colorScheme.onPrimary
+                                            ) {
+                                                Text(
+                                                    text = currentTabsCount.toString(),
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
+                                    }
+                                ) {
+                                    Icon(
+                                        imageVector = iconImage,
+                                        contentDescription = label
+                                    )
+                                }
+                            } else {
+                                Icon(
+                                    imageVector = iconImage,
+                                    contentDescription = label
+                                )
+                            }
                         },
                         label = {
                             Text(
@@ -1796,7 +1944,13 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
             val browserScreenWidth = maxWidth
             val browserScreenHeight = maxHeight
 
-            if (currentTabItem == 0 && isBrowsing) {
+            val showWebView = currentTabItem == 0 && isBrowsing
+            AnimatedVisibility(
+                visible = showWebView,
+                enter = fadeIn(animationSpec = tween(300)) + scaleIn(initialScale = 0.95f, animationSpec = tween(300)),
+                exit = fadeOut(animationSpec = tween(300)) + scaleOut(targetScale = 0.82f, animationSpec = tween(300)),
+                modifier = Modifier.fillMaxSize()
+            ) {
                 Row(modifier = Modifier.fillMaxSize()) {
                     // Left side: Nest WebView. It always remains here, ensuring no recreation/reloading!
                     Box(
@@ -2006,7 +2160,8 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                                                 viewModel.updateWebNavigation(
                                                     title = view?.title ?: it,
                                                     canGoBack = view?.canGoBack() ?: false,
-                                                    canGoForward = view?.canGoForward() ?: false
+                                                    canGoForward = view?.canGoForward() ?: false,
+                                                     backForwardList = view?.copyBackForwardList()
                                                 )
                                             }
                                             // Auto inject crawler on finish
@@ -2137,6 +2292,17 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                                     }
 
                                     webChromeClient = object : WebChromeClient() {
+                                         override fun onShowCustomView(v: android.view.View?, c: CustomViewCallback?) {
+                                             super.onShowCustomView(v, c)
+                                             customView = v
+                                             customViewCallback = c
+                                         }
+
+                                         override fun onHideCustomView() {
+                                             super.onHideCustomView()
+                                             customView = null
+                                             customViewCallback = null
+                                         }
                                         override fun onProgressChanged(view: WebView?, newProgress: Int) {
                                             super.onProgressChanged(view, newProgress)
                                             viewModel.updateWebProgress(newProgress)
@@ -2558,7 +2724,8 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                         }
                     }
                 }
-            } else if (currentTabItem == 0) {
+            }
+            if (currentTabItem == 0 && !isBrowsing) {
                 // HOME NEW TAB (Screen 01)
                 var isSearchFocused by remember { mutableStateOf(false) }
 
@@ -3390,133 +3557,287 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                     }
                 }
             } else if (currentTabItem == 2) {
-                // TAB SWITCHER VIEW
+                // TAB SWITCHER VIEW (Tab Manager)
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(MaterialTheme.colorScheme.background)
+                        .background(if (isPrivateMode) Color(0xFF0F1115) else MaterialTheme.colorScheme.background)
                         .statusBarsPadding()
-                        .padding(16.dp)
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
                 ) {
                     val filteredTabs = tabs.filter { it.isIncognito == isPrivateMode }
+                    
+                    // Top Bar / Header of Tab Manager
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 16.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("${filteredTabs.size} вкладок", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        Column {
+                            Text(
+                                text = if (isPrivateMode) "Инкогнито вкладки" else "Вкладки",
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 24.sp,
+                                color = if (isPrivateMode) Color(0xFFD0BCFF) else MaterialTheme.colorScheme.onBackground
+                            )
+                            Text(
+                                text = "${filteredTabs.size} открыто",
+                                fontSize = 13.sp,
+                                color = if (isPrivateMode) Color(0xFF938F99) else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        
+                        // Switcher pill between Regular and Incognito
                         Row(
                             modifier = Modifier
-                                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(20.dp))
+                                .background(
+                                    if (isPrivateMode) Color(0xFF211F26) else MaterialTheme.colorScheme.surfaceVariant,
+                                    RoundedCornerShape(24.dp)
+                                )
                                 .padding(4.dp)
                         ) {
-                            Text(
-                                "Обычные",
+                            Row(
                                 modifier = Modifier
                                     .clickable { isPrivateMode = false }
-                                    .background(if (!isPrivateMode) MaterialTheme.colorScheme.primary else Color.Transparent, RoundedCornerShape(16.dp))
-                                    .padding(horizontal = 12.dp, vertical = 6.dp),
-                                color = if (!isPrivateMode) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                "Инкогнито",
+                                    .background(
+                                        if (!isPrivateMode) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                        RoundedCornerShape(20.dp)
+                                    )
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Tab,
+                                    contentDescription = null,
+                                    tint = if (!isPrivateMode) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Обычные",
+                                    color = if (!isPrivateMode) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            Row(
                                 modifier = Modifier
                                     .clickable { isPrivateMode = true }
-                                    .background(if (isPrivateMode) MaterialTheme.colorScheme.primary else Color.Transparent, RoundedCornerShape(16.dp))
-                                    .padding(horizontal = 12.dp, vertical = 6.dp),
-                                color = if (isPrivateMode) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+                                    .background(
+                                        if (isPrivateMode) Color(0xFFD0BCFF) else Color.Transparent,
+                                        RoundedCornerShape(20.dp)
+                                    )
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Lock,
+                                    contentDescription = null,
+                                    tint = if (isPrivateMode) Color(0xFF381E72) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Инкогнито",
+                                    color = if (isPrivateMode) Color(0xFF381E72) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(16.dp))
-
+                    // Tabs List
                     if (filteredTabs.isEmpty()) {
                         Box(
-                            modifier = Modifier.weight(1f).fillMaxWidth(),
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth(),
                             contentAlignment = Alignment.Center
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Icon(
-                                    Icons.Default.Tab, 
-                                    contentDescription = null, 
-                                    modifier = Modifier.size(64.dp), 
-                                    tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                                    imageVector = if (isPrivateMode) Icons.Default.Lock else Icons.Default.Tab,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(64.dp),
+                                    tint = if (isPrivateMode) Color(0xFF49454F) else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
                                 )
                                 Spacer(modifier = Modifier.height(16.dp))
                                 Text(
-                                    if (isPrivateMode) "Нет открытых вкладок инкогнито" else "Нет открытых вкладок",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    fontSize = 14.sp
+                                    text = if (isPrivateMode) "Нет открытых приватных вкладок" else "Все вкладки закрыты",
+                                    color = if (isPrivateMode) Color(0xFF938F99) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Medium
                                 )
                             }
                         }
                     } else {
-                        LazyVerticalGrid(
-                            columns = GridCells.Fixed(2),
-                            modifier = Modifier.weight(1f),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        LazyColumn(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            contentPadding = PaddingValues(vertical = 4.dp)
                         ) {
                             items(filteredTabs, key = { it.id }) { tab ->
                                 val isTabActive = tab.id == activeTabId
-                                Card(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(140.dp)
-                                        .clickable {
-                                            viewModel.selectTab(tab.id)
-                                            isBrowsing = true
-                                            currentTabItem = 0
-                                        },
-                                    border = BorderStroke(
-                                        1.5.dp, 
-                                        if (isTabActive) MaterialTheme.colorScheme.primary 
-                                        else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
-                                    )
-                                ) {
-                                    Column(modifier = Modifier.padding(12.dp)) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Text(
-                                                tab.title.ifBlank { "Новая вкладка" }, 
-                                                fontWeight = FontWeight.Bold, 
-                                                fontSize = 13.sp, 
-                                                maxLines = 1, 
-                                                overflow = TextOverflow.Ellipsis, 
-                                                modifier = Modifier.weight(1f)
-                                            )
-                                            IconButton(
-                                                onClick = {
-                                                    viewModel.closeTab(tab.id)
-                                                },
-                                                modifier = Modifier.size(24.dp)
-                                            ) {
-                                                Icon(Icons.Default.Close, contentDescription = "Закрыть вкладку", modifier = Modifier.size(16.dp))
-                                            }
+                                
+                                // Setup SwipeToDismissBox
+                                val dismissState = rememberSwipeToDismissBoxState(
+                                    confirmValueChange = { dismissValue ->
+                                        if (dismissValue == SwipeToDismissBoxValue.StartToEnd || 
+                                            dismissValue == SwipeToDismissBoxValue.EndToStart) {
+                                            viewModel.closeTab(tab.id, persistentWebView)
+                                            true
+                                        } else {
+                                            false
                                         }
-                                        Spacer(modifier = Modifier.height(6.dp))
-                                        Text(tab.url.replace("https://", "").replace("http://", ""), fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        Spacer(modifier = Modifier.weight(1f))
+                                    }
+                                )
+
+                                SwipeToDismissBox(
+                                    state = dismissState,
+                                    backgroundContent = {
+                                        val color = if (dismissState.dismissDirection != null) {
+                                            MaterialTheme.colorScheme.errorContainer
+                                        } else {
+                                            Color.Transparent
+                                        }
                                         Box(
                                             modifier = Modifier
-                                                .fillMaxWidth()
-                                                .height(50.dp)
-                                                .background(
-                                                    if (tab.isIncognito) Color.Black.copy(alpha = 0.15f) 
-                                                    else MaterialTheme.colorScheme.surfaceVariant, 
-                                                    RoundedCornerShape(6.dp)
-                                                ),
-                                            contentAlignment = Alignment.Center
+                                                .fillMaxSize()
+                                                .background(color, RoundedCornerShape(16.dp))
+                                                .padding(horizontal = 24.dp),
+                                            contentAlignment = if (dismissState.dismissDirection == SwipeToDismissBoxValue.StartToEnd) {
+                                                Alignment.CenterStart
+                                            } else {
+                                                Alignment.CenterEnd
+                                            }
                                         ) {
-                                            Text(if (tab.isIncognito) "Режим инкогнито" else "Обычная вкладка", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Icon(
+                                                imageVector = Icons.Default.Delete,
+                                                contentDescription = "Закрыть вкладку свайпом",
+                                                tint = MaterialTheme.colorScheme.onErrorContainer,
+                                                modifier = Modifier.size(24.dp)
+                                            )
+                                        }
+                                    },
+                                    modifier = Modifier.animateItem(
+                                        fadeInSpec = tween(250),
+                                        fadeOutSpec = tween(250),
+                                        placementSpec = tween(250)
+                                    )
+                                ) {
+                                    Card(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                viewModel.selectTab(tab.id, persistentWebView)
+                                                isBrowsing = true
+                                                currentTabItem = 0
+                                            },
+                                        shape = RoundedCornerShape(16.dp),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = if (isPrivateMode) {
+                                                if (isTabActive) Color(0xFF2E2C36) else Color(0xFF1B1822)
+                                            } else {
+                                                if (isTabActive) MaterialTheme.colorScheme.surfaceColorAtElevation(4.dp) 
+                                                else MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp)
+                                            }
+                                        ),
+                                        border = BorderStroke(
+                                            width = if (isTabActive) 2.dp else 1.dp,
+                                            color = if (isTabActive) {
+                                                if (isPrivateMode) Color(0xFFD0BCFF) else MaterialTheme.colorScheme.primary
+                                            } else {
+                                                if (isPrivateMode) Color(0xFF332F41) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                                            }
+                                        )
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(14.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            // Favicon container
+                                            val faviconUrl = getFaviconUrl(tab.url)
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(40.dp)
+                                                    .background(
+                                                        if (isPrivateMode) Color(0xFF2D2A35) else MaterialTheme.colorScheme.surfaceVariant,
+                                                        RoundedCornerShape(10.dp)
+                                                    ),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                if (faviconUrl.isNotEmpty()) {
+                                                    AsyncImage(
+                                                        model = faviconUrl,
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(24.dp),
+                                                        error = androidx.compose.ui.graphics.vector.rememberVectorPainter(Icons.Default.Language)
+                                                    )
+                                                } else {
+                                                    Icon(
+                                                        imageVector = if (tab.isIncognito) Icons.Default.Lock else Icons.Default.Language,
+                                                        contentDescription = null,
+                                                        tint = if (isPrivateMode) Color(0xFFD0BCFF) else MaterialTheme.colorScheme.primary,
+                                                        modifier = Modifier.size(20.dp)
+                                                    )
+                                                }
+                                            }
+
+                                            Spacer(modifier = Modifier.width(14.dp))
+
+                                            // Text info
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = tab.title.ifBlank { "Новая вкладка" },
+                                                    fontWeight = if (isTabActive) FontWeight.ExtraBold else FontWeight.SemiBold,
+                                                    fontSize = 14.sp,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    color = if (isPrivateMode) Color.White else MaterialTheme.colorScheme.onSurface
+                                                )
+                                                Spacer(modifier = Modifier.height(2.dp))
+                                                Text(
+                                                    text = if (tab.url.isBlank() || tab.url == "about:blank") "about:blank" else tab.url.replace("https://", "").replace("http://", "").replace("www.", ""),
+                                                    fontSize = 11.sp,
+                                                    color = if (isPrivateMode) Color(0xFFB5B1BC) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+
+                                            // Close button with adequate touch target size (48dp+)
+                                            IconButton(
+                                                onClick = {
+                                                    viewModel.closeTab(tab.id, persistentWebView)
+                                                },
+                                                modifier = Modifier
+                                                    .size(48.dp) // meets accessibility 48dp guidelines
+                                                    .padding(4.dp)
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(26.dp)
+                                                        .background(
+                                                            if (isPrivateMode) Color(0xFF2B2835) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                                            androidx.compose.foundation.shape.CircleShape
+                                                        ),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Close,
+                                                        contentDescription = "Закрыть вкладку",
+                                                        tint = if (isPrivateMode) Color(0xFFE6E1E5) else MaterialTheme.colorScheme.onSurface,
+                                                        modifier = Modifier.size(14.dp)
+                                                    )
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -3524,19 +3845,32 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                         }
                     }
 
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Plus "New tab" button
                     Button(
                         onClick = {
-                            viewModel.addTab(l10n.newTab, "https://www.google.com", isPrivateMode)
+                            viewModel.addTab(l10n.newTab, "https://www.google.com", isPrivateMode, persistentWebView)
                             isBrowsing = false
                             currentTabItem = 0
                             focusManager.clearFocus()
                         },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 12.dp),
-                        shape = RoundedCornerShape(12.dp)
+                            .height(56.dp)
+                            .padding(bottom = 4.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isPrivateMode) Color(0xFFD0BCFF) else MaterialTheme.colorScheme.primary,
+                            contentColor = if (isPrivateMode) Color(0xFF381E72) else MaterialTheme.colorScheme.onPrimary
+                        ),
+                        elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp)
                     ) {
-                        Text("+ " + l10n.newTab, fontWeight = FontWeight.Bold)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(text = l10n.newTab, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        }
                     }
                 }
             } else if (currentTabItem == 3) {
@@ -4356,7 +4690,7 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                                                 currentTabItem = 3
                                             }
                                             "incognito" -> {
-                                                viewModel.addTab("Incognito", "https://images.google.com", isIncognito = true)
+                                                viewModel.addTab("Incognito", "https://images.google.com", isIncognito = true, persistentWebView)
                                                 isPrivateMode = true
                                                 isBrowsing = true
                                                 currentTabItem = 0
@@ -4796,6 +5130,42 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
             }
         }
     }
+
+    if (customView != null) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+                .pointerInput(Unit) {},
+            contentAlignment = Alignment.Center
+        ) {
+            AndroidView(
+                factory = {
+                    customView!!
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+
+            // Floating exit button in case user is stuck in fullscreen video
+            IconButton(
+                onClick = {
+                    customViewCallback?.onCustomViewHidden()
+                    customView = null
+                    customViewCallback = null
+                },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(16.dp)
+                    .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Close Fullscreen",
+                    tint = Color.White
+                )
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -5232,6 +5602,21 @@ fun EmptyState() {
             fontSize = 16.sp,
             fontWeight = FontWeight.Medium
         )
+    }
+}
+
+fun getFaviconUrl(url: String): String {
+    if (url.isBlank() || url == "about:blank") return ""
+    return try {
+        val uri = android.net.Uri.parse(url)
+        val host = uri.host ?: ""
+        if (host.isNotEmpty()) {
+            "https://www.google.com/s2/favicons?sz=128&domain=$host"
+        } else {
+            ""
+        }
+    } catch (e: Exception) {
+        ""
     }
 }
 
