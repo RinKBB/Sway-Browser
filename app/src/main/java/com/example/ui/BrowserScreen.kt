@@ -71,6 +71,12 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.TextRange
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.BackgroundPlayWebView
@@ -903,6 +909,16 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
     var showSettingsPage by remember { mutableStateOf(false) }
 
     var textInputUrl by remember { mutableStateOf(currentUrl) }
+    var urlTextFieldValue by remember {
+        mutableStateOf(TextFieldValue(text = textInputUrl, selection = TextRange.Zero))
+    }
+    var isBarVisible by remember { mutableStateOf(true) }
+
+    LaunchedEffect(textInputUrl) {
+        if (urlTextFieldValue.text != textInputUrl) {
+            urlTextFieldValue = TextFieldValue(text = textInputUrl, selection = TextRange.Zero)
+        }
+    }
     
     // Retrieve cached persistent WebView to enable continuous audio play and avoid state reloads
     val persistentWebView = viewModel.getOrCreateWebView(localContext)
@@ -1057,6 +1073,10 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
         }
     }
     var isPrivateMode by remember { mutableStateOf(false) }
+
+    LaunchedEffect(currentUrl, isBrowsing) {
+        isBarVisible = true
+    }
     
     val tabs by viewModel.tabs.collectAsState()
     val activeTabId by viewModel.activeTabId.collectAsState()
@@ -1431,11 +1451,16 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
 
     Scaffold(
         topBar = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .statusBarsPadding()
+            AnimatedVisibility(
+                visible = !isBrowsing || currentTabItem != 0 || isBarVisible,
+                enter = slideInVertically { -it } + fadeIn(animationSpec = tween(200)),
+                exit = slideOutVertically { -it } + fadeOut(animationSpec = tween(200))
             ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                ) {
                 // In-App Update Banner
                 val updateInfoState by viewModel.updateInfo.collectAsState()
                 val updateProgressState by viewModel.updateProgress.collectAsState()
@@ -1644,13 +1669,30 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                         }
 
                         // Center block: URL input field (expanding dynamically)
+                        var isUrlBarFocused by remember { mutableStateOf(false) }
                         TextField(
-                            value = textInputUrl,
-                            onValueChange = { textInputUrl = it },
+                            value = urlTextFieldValue,
+                            onValueChange = {
+                                urlTextFieldValue = it
+                                textInputUrl = it.text
+                            },
                             modifier = Modifier
                                 .weight(1f)
                                 .height(46.dp)
-                                .testTag("url_input_bar"),
+                                .testTag("url_input_bar")
+                                .onFocusChanged { focusState ->
+                                    if (focusState.isFocused) {
+                                        if (!isUrlBarFocused) {
+                                            urlTextFieldValue = urlTextFieldValue.copy(
+                                                selection = TextRange(0, urlTextFieldValue.text.length)
+                                            )
+                                            isUrlBarFocused = true
+                                        }
+                                        isBarVisible = true
+                                    } else {
+                                        isUrlBarFocused = false
+                                    }
+                                },
                             textStyle = LocalTextStyle.current.copy(fontSize = 14.sp),
                             placeholder = { Text("Поиск картинок и видео...", fontSize = 13.sp) },
                             singleLine = true,
@@ -1660,6 +1702,20 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                                 disabledIndicatorColor = Color.Transparent
                              ),
                             shape = RoundedCornerShape(24.dp),
+                            keyboardOptions = KeyboardOptions(
+                                imeAction = ImeAction.Search,
+                                keyboardType = KeyboardType.Uri
+                            ),
+                            keyboardActions = KeyboardActions(
+                                onSearch = {
+                                    focusManager.clearFocus()
+                                    val parsedUrl = smartUrlParse(textInputUrl, viewModel::getSearchUrl)
+                                    if (parsedUrl.isNotEmpty()) {
+                                        viewModel.updateUrl(parsedUrl)
+                                        webViewRef?.loadUrl(parsedUrl)
+                                    }
+                                }
+                            ),
                             leadingIcon = {
                                 Box {
                                     var showShieldDialog by remember { mutableStateOf(false) }
@@ -1781,9 +1837,12 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                                 }
                             },
                             trailingIcon = {
-                                if (textInputUrl.isNotEmpty()) {
+                                if (urlTextFieldValue.text.isNotEmpty()) {
                                     IconButton(
-                                        onClick = { textInputUrl = "" },
+                                        onClick = {
+                                            urlTextFieldValue = TextFieldValue("", selection = TextRange.Zero)
+                                            textInputUrl = ""
+                                        },
                                         modifier = Modifier.size(36.dp)
                                     ) {
                                         Icon(Icons.Default.Clear, contentDescription = "Очистить URL")
@@ -1814,15 +1873,8 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                             IconButton(
                                 onClick = {
                                     focusManager.clearFocus()
-                                    var parsedUrl = textInputUrl.trim()
+                                    val parsedUrl = smartUrlParse(textInputUrl, viewModel::getSearchUrl)
                                     if (parsedUrl.isNotEmpty()) {
-                                        if (!parsedUrl.startsWith("http://") && !parsedUrl.startsWith("https://")) {
-                                            parsedUrl = if (parsedUrl.contains(".") && !parsedUrl.contains(" ")) {
-                                                "https://$parsedUrl"
-                                            } else {
-                                                viewModel.getSearchUrl(parsedUrl)
-                                            }
-                                        }
                                         viewModel.updateUrl(parsedUrl)
                                         webViewRef?.loadUrl(parsedUrl)
                                     }
@@ -1861,14 +1913,20 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                     }
                 }
             }
+            }
         }
     },
         floatingActionButton = {},
         bottomBar = {
-            NavigationBar(
-                containerColor = MaterialTheme.colorScheme.surface,
-                tonalElevation = 8.dp
+            AnimatedVisibility(
+                visible = !isBrowsing || currentTabItem != 0 || isBarVisible,
+                enter = slideInVertically { it } + fadeIn(animationSpec = tween(200)),
+                exit = slideOutVertically { it } + fadeOut(animationSpec = tween(200))
             ) {
+                NavigationBar(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 8.dp
+                ) {
                 val menuItems = listOf(
                     Triple(l10n.tabHome, Icons.Filled.Home, Icons.Outlined.Home),
                     Triple(l10n.tabSearch, Icons.Filled.Search, Icons.Outlined.Search),
@@ -1933,6 +1991,7 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                     )
                 }
             }
+            }
         }
     ) { innerPadding ->
         BoxWithConstraints(
@@ -1986,6 +2045,22 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                                         userAgentString = viewModel.getUserAgent()
                                         if (isFastRenderingEnabled) {
                                             loadsImagesAutomatically = true
+                                        }
+                                    }
+                                    
+                                    if (android.os.Build.VERSION.SDK_INT >= 23) {
+                                        setOnScrollChangeListener { _, _, _, _, oldScrollY ->
+                                            val currentY = scrollY
+                                            val delta = currentY - oldScrollY
+                                            if (delta > 10 && currentY > 80) {
+                                                if (isBarVisible) {
+                                                    isBarVisible = false
+                                                }
+                                            } else if (delta < -2) {
+                                                if (!isBarVisible) {
+                                                    isBarVisible = true
+                                                }
+                                            }
                                         }
                                     }
                                     
@@ -5617,6 +5692,30 @@ fun getFaviconUrl(url: String): String {
         }
     } catch (e: Exception) {
         ""
+    }
+}
+
+fun smartUrlParse(input: String, searchUrlProvider: (String) -> String): String {
+    val trimmed = input.trim()
+    if (trimmed.isEmpty()) return ""
+
+    // Already has protocol?
+    if (trimmed.startsWith("http://", ignoreCase = true) || trimmed.startsWith("https://", ignoreCase = true)) {
+        return trimmed
+    }
+
+    // Heuristics checking if it's a URL:
+    // 1. Doesn't contain spaces.
+    // 2. Contains at least one dot '.' (e.g. google.com, subdomain.test.org, 192.168.1.1).
+    // 3. Or it is "localhost".
+    val hasSpace = trimmed.contains(" ")
+    val hasDot = trimmed.contains(".")
+    val isLocalhost = trimmed.equals("localhost", ignoreCase = true) || trimmed.startsWith("localhost:")
+
+    return if (!hasSpace && (hasDot || isLocalhost)) {
+        "https://$trimmed"
+    } else {
+        searchUrlProvider(trimmed)
     }
 }
 
