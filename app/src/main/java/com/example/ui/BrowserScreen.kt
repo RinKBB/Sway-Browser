@@ -71,6 +71,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.TextRange
 import androidx.compose.foundation.text.KeyboardOptions
@@ -1089,6 +1091,23 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
 
     val coroutineScope = rememberCoroutineScope()
     var isImageSearchTabSelected by remember { mutableStateOf(true) }
+    val searchScreenFocusRequester = remember { FocusRequester() }
+    val imageSearchFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(currentTabItem, isImageSearchTabSelected) {
+        if (currentTabItem == 1) {
+            delay(300)
+            try {
+                if (isImageSearchTabSelected) {
+                    imageSearchFocusRequester.requestFocus()
+                } else {
+                    searchScreenFocusRequester.requestFocus()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
     var imageSearchQuery by remember(l10n.keywordCosmos) { mutableStateOf(l10n.keywordCosmos) }
     var isImageSearchLoading by remember { mutableStateOf(false) }
 
@@ -2021,6 +2040,8 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                             factory = { ctx ->
                                 (persistentWebView.parent as? android.view.ViewGroup)?.removeView(persistentWebView)
                                 persistentWebView.apply {
+                                    isFocusable = true
+                                    isFocusableInTouchMode = true
                                     // Enable safe standard cookies and session management
                                     try {
                                         CookieManager.getInstance().setAcceptCookie(true)
@@ -3267,7 +3288,9 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                                 onValueChange = { imageSearchQuery = it },
                                 placeholder = { Text(l10n.searchPlaceholderImage) },
                                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .focusRequester(imageSearchFocusRequester),
                                 shape = RoundedCornerShape(12.dp),
                                 colors = TextFieldDefaults.colors(
                                     focusedIndicatorColor = Color.Transparent,
@@ -3535,7 +3558,9 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                             onValueChange = { searchQueryText = it },
                             placeholder = { Text("Введите запрос для поиска...") },
                             leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .focusRequester(searchScreenFocusRequester),
                             shape = RoundedCornerShape(12.dp),
                             colors = TextFieldDefaults.colors(
                                 focusedIndicatorColor = Color.Transparent,
