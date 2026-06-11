@@ -1,4 +1,4 @@
-<div align="center">
+7<div align="center">
 
 # 🌊 Sway Browser
 
@@ -354,7 +354,7 @@ _Посвящается всем, кто когда-нибудь просил AI
 
 ### Загрузка
 
-Sway Browser распространяется **бесплатно, напрямую через GitHub Releases**, избегая комиссии Google Play ($25 за приложение).
+Sway Browser распространяется **бесплатно, напрямую через GitHub Releases**,
 
 **👉 [Скачать Latest Release на GitHub Releases](https://raw.githubusercontent.com/RinKBB/Sway-Browser/updates/app-debug.apk)**
 
