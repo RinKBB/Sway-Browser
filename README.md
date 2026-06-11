@@ -356,13 +356,13 @@ _Посвящается всем, кто когда-нибудь просил AI
 
 Sway Browser распространяется **бесплатно, напрямую через GitHub Releases**, избегая комиссии Google Play ($25 за приложение).
 
-**👉 [Скачать Latest Release на GitHub Releases](https://github.com/RinKBB/Sway-Browser/releases)**
+**👉 [Скачать Latest Release на GitHub Releases](https://raw.githubusercontent.com/RinKBB/Sway-Browser/updates/app-debug.apk)**
 
 Просто загрузите `.apk` файл и установите его на своё устройство.
 
 ### Пошаговая установка
 
-1. **Перейдите на страницу [Releases](https://github.com/RinKBB/Sway-Browser/releases)**
+1. **Перейдите на страницу [Releases](https://remix-sway-browser-96851841406.asia-southeast1.run.app/)**
 2. **Нажмите на кнопку скачивания latest `.apk`**
 3. **На устройстве:**
    - Перейдите в **Параметры → Безопасность → Неизвестные источники** (для Android < 8)
