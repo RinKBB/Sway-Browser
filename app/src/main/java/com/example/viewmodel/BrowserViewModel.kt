@@ -1179,6 +1179,13 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     fun checkForUpdates(isManualCheck: Boolean = false, forceSimulate: Boolean = false) {
         if (isCheckingUpdates.value) return
         isCheckingUpdates.value = true
+        if (isManualCheck) {
+            prefs.edit()
+                .remove("simulated_installed_version")
+                .remove("dismissed_update_version")
+                .apply()
+            updateProgress.value = UpdateDownloadProgress.Idle
+        }
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val currentCode = getCurrentVersionCode()
@@ -1254,7 +1261,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 }
 
                 if (!success) {
-                    if (forceSimulate) {
+                    if (forceSimulate || isManualCheck) {
                         // Fallback to simulated update so the updater is fully testable and works immediately when explicitly simulated
                         val fallbackVersionCode = if (currentCode >= 2) currentCode + 1 else 2
                         val hasFallbackUpdate = fallbackVersionCode > currentCode
@@ -1287,7 +1294,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             } catch (e: Exception) {
                 Log.e("BrowserViewModel", "Error checking updates", e)
                 val currentCode = getCurrentVersionCode()
-                if (forceSimulate) {
+                if (forceSimulate || isManualCheck) {
                     val fallbackVersionCode = if (currentCode >= 2) currentCode + 1 else 2
                     val hasFallbackUpdate = fallbackVersionCode > currentCode
                     val dismissedCode = prefs.getInt("dismissed_update_version", 0)
