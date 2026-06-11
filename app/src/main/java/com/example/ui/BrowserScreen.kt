@@ -900,6 +900,10 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
     val downloadProgress by viewModel.downloadProgress.collectAsState()
 
     val isTrackerBlockingEnabled by viewModel.isTrackerBlockingEnabled.collectAsState()
+    val appLanguage by viewModel.appLanguage.collectAsState()
+    val isHttpsEverywhereEnabled by viewModel.isHttpsEverywhereEnabled.collectAsState()
+    val isScriptBlockingEnabled by viewModel.isScriptBlockingEnabled.collectAsState()
+    val isBlockThirdPartyCookiesEnabled by viewModel.isBlockThirdPartyCookiesEnabled.collectAsState()
     val isClearHistoryOnExitEnabled by viewModel.isClearHistoryOnExitEnabled.collectAsState()
     val searchEngine by viewModel.searchEngine.collectAsState()
     val userAgentMode by viewModel.userAgentMode.collectAsState()
@@ -1728,7 +1732,7 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                             keyboardActions = KeyboardActions(
                                 onSearch = {
                                     focusManager.clearFocus()
-                                    val parsedUrl = smartUrlParse(textInputUrl, viewModel::getSearchUrl)
+                                    val parsedUrl = smartUrlParse(textInputUrl, isHttpsEverywhereEnabled, viewModel::getSearchUrl)
                                     if (parsedUrl.isNotEmpty()) {
                                         viewModel.updateUrl(parsedUrl)
                                         webViewRef?.loadUrl(parsedUrl)
@@ -1785,7 +1789,11 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                                                 }
                                             },
                                             text = {
-                                                Column(modifier = Modifier.fillMaxWidth()) {
+                                                Column(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .verticalScroll(androidx.compose.foundation.rememberScrollState())
+                                                ) {
                                                     Text(
                                                         text = l10n.adBlockStatistics + ":",
                                                         fontSize = 14.sp
@@ -1842,6 +1850,84 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                                                             )
                                                             Spacer(modifier = Modifier.width(8.dp))
                                                             Text(text = name, fontSize = 14.sp)
+                                                         }
+                                                     }
+
+                                                     val isRu = appLanguage == "ru"
+                                                     val isKk = appLanguage == "kk"
+
+                                                     val httpsTitle = if (isRu) "HTTPS Everywhere" else if (isKk) "Шифрленген HTTPS" else "HTTPS Everywhere"
+                                                     val httpsDesc = if (isRu) "Принудительный перенос соединений с HTTP на safe HTTPS" else if (isKk) "HTTP байланысын қауіпсіз HTTPS-ке мәжбүрлі түрде бағыттау" else "Redirect HTTP connections to secure HTTPS"
+
+                                                     val scriptTitle = if (isRu) "Блокировка сценариев (JS)" else if (isKk) "JS сценарийлерін блоктау" else "Block scripts (JavaScript)"
+                                                     val scriptDesc = if (isRu) "Отключать выполнение JavaScript кода на страницах" else if (isKk) "Парақтағы JavaScript кодын орындауды өшіру" else "Disable execution of JavaScript code on pages"
+
+                                                     val cookieTitle = if (isRu) "Блокировать сторонние куки" else if (isKk) "Бөгде cookie файлдарын блоктау" else "Block third-party cookies"
+                                                     val cookieDesc = if (isRu) "Запрет сторонним рекламодателям сохранять куки" else if (isKk) "Үшінші тарап жарнама берушілерінің куки сақтауына тыйым салу" else "Prevent third-party advertisers from setting cookies"
+
+                                                     HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+                                                     // HTTPS Everywhere switch
+                                                     Row(
+                                                         modifier = Modifier
+                                                             .fillMaxWidth()
+                                                             .padding(vertical = 4.dp),
+                                                         horizontalArrangement = Arrangement.SpaceBetween,
+                                                         verticalAlignment = Alignment.CenterVertically
+                                                     ) {
+                                                         Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                                             Text(httpsTitle, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                                             Text(httpsDesc, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                         }
+                                                         Switch(
+                                                             checked = isHttpsEverywhereEnabled,
+                                                             onCheckedChange = { viewModel.toggleHttpsEverywhere(it) }
+                                                         )
+                                                     }
+
+                                                     HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+                                                     // Script Blocking switch
+                                                     Row(
+                                                         modifier = Modifier
+                                                             .fillMaxWidth()
+                                                             .padding(vertical = 4.dp),
+                                                         horizontalArrangement = Arrangement.SpaceBetween,
+                                                         verticalAlignment = Alignment.CenterVertically
+                                                     ) {
+                                                         Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                                             Text(scriptTitle, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                                             Text(scriptDesc, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                         }
+                                                         Switch(
+                                                             checked = isScriptBlockingEnabled,
+                                                             onCheckedChange = { viewModel.toggleScriptBlocking(it) }
+                                                         )
+                                                     }
+
+                                                     HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+                                                     // Cookie blocker switch
+                                                     Row(
+                                                         modifier = Modifier
+                                                             .fillMaxWidth()
+                                                             .padding(vertical = 4.dp),
+                                                         horizontalArrangement = Arrangement.SpaceBetween,
+                                                         verticalAlignment = Alignment.CenterVertically
+                                                     ) {
+                                                         Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                                             Text(cookieTitle, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                                             Text(cookieDesc, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                         }
+                                                         Switch(
+                                                             checked = isBlockThirdPartyCookiesEnabled,
+                                                             onCheckedChange = { viewModel.toggleBlockThirdPartyCookies(it) }
+                                                         )
+                                                     }
+
+                                                     listOf("dummy" to "").forEach { (_, dummyName) ->
+                                                         Row {
+                                                             Spacer(modifier = Modifier.size(0.dp))
                                                         }
                                                     }
                                                 }
@@ -1892,7 +1978,7 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                             IconButton(
                                 onClick = {
                                     focusManager.clearFocus()
-                                    val parsedUrl = smartUrlParse(textInputUrl, viewModel::getSearchUrl)
+                                    val parsedUrl = smartUrlParse(textInputUrl, isHttpsEverywhereEnabled, viewModel::getSearchUrl)
                                     if (parsedUrl.isNotEmpty()) {
                                         viewModel.updateUrl(parsedUrl)
                                         webViewRef?.loadUrl(parsedUrl)
@@ -2045,11 +2131,11 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                                     // Enable safe standard cookies and session management
                                     try {
                                         CookieManager.getInstance().setAcceptCookie(true)
-                                        CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+                                        CookieManager.getInstance().setAcceptThirdPartyCookies(this, !isBlockThirdPartyCookiesEnabled)
                                     } catch (e: Exception) {}
 
                                     settings.apply {
-                                        javaScriptEnabled = true
+                                        javaScriptEnabled = !isScriptBlockingEnabled
                                         domStorageEnabled = true
                                         databaseEnabled = true
                                         mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
@@ -2497,6 +2583,10 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                             },
                             update = { webView ->
                                 webView.settings.apply {
+                                    val shouldEnableJs = !isScriptBlockingEnabled
+                                    if (javaScriptEnabled != shouldEnableJs) {
+                                        javaScriptEnabled = shouldEnableJs
+                                    }
                                     if (isFastRenderingEnabled) {
                                         loadsImagesAutomatically = true
                                         if (android.os.Build.VERSION.SDK_INT >= 23) {
@@ -2509,6 +2599,9 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                                 } else {
                                     webView.setLayerType(android.view.View.LAYER_TYPE_NONE, null)
                                 }
+                                try {
+                                    CookieManager.getInstance().setAcceptThirdPartyCookies(webView, !isBlockThirdPartyCookiesEnabled)
+                                } catch (e: Exception) {}
                             },
                             modifier = Modifier.fillMaxSize()
                         )
@@ -5720,9 +5813,14 @@ fun getFaviconUrl(url: String): String {
     }
 }
 
-fun smartUrlParse(input: String, searchUrlProvider: (String) -> String): String {
+fun smartUrlParse(input: String, isHttpsEverywhereEnabled: Boolean = true, searchUrlProvider: (String) -> String): String {
     val trimmed = input.trim()
     if (trimmed.isEmpty()) return ""
+
+    // Rewrite http to https if HTTPS Everywhere is active
+    if (isHttpsEverywhereEnabled && trimmed.startsWith("http://", ignoreCase = true)) {
+        return "https://" + trimmed.substring(7)
+    }
 
     // Already has protocol?
     if (trimmed.startsWith("http://", ignoreCase = true) || trimmed.startsWith("https://", ignoreCase = true)) {

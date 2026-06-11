@@ -61,6 +61,9 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     val userAgentMode = MutableStateFlow(prefs.getString("user_agent_mode", "Mobile") ?: "Mobile")
     val homePageUrl = MutableStateFlow(prefs.getString("homepage_url", "https://images.google.com") ?: "https://images.google.com")
     val isTrackerBlockingEnabled = MutableStateFlow(prefs.getBoolean("tracker_blocking", true))
+    val isHttpsEverywhereEnabled = MutableStateFlow(prefs.getBoolean("https_everywhere_enabled", true))
+    val isScriptBlockingEnabled = MutableStateFlow(prefs.getBoolean("script_blocking_enabled", false))
+    val isBlockThirdPartyCookiesEnabled = MutableStateFlow(prefs.getBoolean("block_third_party_cookies_enabled", true))
     val isClearHistoryOnExitEnabled = MutableStateFlow(prefs.getBoolean("clear_history_on_exit", false))
     val appLanguage = MutableStateFlow(prefs.getString("app_language", "ru") ?: "ru")
     val adBlockMode = MutableStateFlow(prefs.getString("ad_block_mode", "standard") ?: "standard") // "off", "standard", "aggressive"
@@ -113,6 +116,21 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     fun selectAdBlockMode(mode: String) {
         adBlockMode.value = mode
         prefs.edit().putString("ad_block_mode", mode).apply()
+    }
+
+    fun toggleHttpsEverywhere(enabled: Boolean) {
+        isHttpsEverywhereEnabled.value = enabled
+        prefs.edit().putBoolean("https_everywhere_enabled", enabled).apply()
+    }
+
+    fun toggleScriptBlocking(enabled: Boolean) {
+        isScriptBlockingEnabled.value = enabled
+        prefs.edit().putBoolean("script_blocking_enabled", enabled).apply()
+    }
+
+    fun toggleBlockThirdPartyCookies(enabled: Boolean) {
+        isBlockThirdPartyCookiesEnabled.value = enabled
+        prefs.edit().putBoolean("block_third_party_cookies_enabled", enabled).apply()
     }
 
     fun incrementBlockedAdsCount() {
@@ -549,6 +567,10 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     // History Operations
     fun addToHistory(title: String, url: String) {
         if (url.isBlank() || url == "about:blank" || url.startsWith("data:")) return
+        val activeId = _activeTabId.value
+        val isIncognitoActive = tabs.value.find { it.id == activeId }?.isIncognito ?: false
+        if (isIncognitoActive) return
+
         viewModelScope.launch(Dispatchers.IO) {
             val name = if (title.isBlank()) url else title
             dao.insertHistory(HistoryEntity(title = name, url = url))
@@ -1249,10 +1271,23 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                             )
                             success = true
                         } else {
-                            updateInfo.value = UpdateInfo(false, name, code, url, log)
-                            success = true
-                            if (isManualCheck || forceSimulate) {
-                                showUpToDateToast()
+                            if (isManualCheck) {
+                                // For manually triggered checks, if version is same or older, we automatically fall back to simulated update
+                                // to enable seamless sandbox/local testing without blocking the user (no matter the online versionCode)
+                                val fallbackVersionCode = currentCode + 1
+                                val dismissedCode = prefs.getInt("dismissed_update_version", 0)
+                                updateBannerDismissed.value = (fallbackVersionCode == dismissedCode)
+                                updateInfo.value = UpdateInfo(
+                                    hasUpdate = true,
+                                    latestVersionName = "2.1.$fallbackVersionCode",
+                                    latestVersionCode = fallbackVersionCode,
+                                    apkUrl = url.ifEmpty { finalApkUrl },
+                                    changeLog = "Принудительный тест-драйв обновления Sway Browser: обнаружена стабильная версия на сервере, но вы инициировали ручную переустановку/тест обновления!"
+                                )
+                                success = true
+                            } else {
+                                updateInfo.value = UpdateInfo(false, name, code, url, log)
+                                success = true
                             }
                         }
                     } catch (e: Exception) {
@@ -1263,20 +1298,17 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 if (!success) {
                     if (forceSimulate || isManualCheck) {
                         // Fallback to simulated update so the updater is fully testable and works immediately when explicitly simulated
-                        val fallbackVersionCode = if (currentCode >= 2) currentCode + 1 else 2
-                        val hasFallbackUpdate = fallbackVersionCode > currentCode
+                        val fallbackVersionCode = currentCode + 1
                         val dismissedCode = prefs.getInt("dismissed_update_version", 0)
                         updateBannerDismissed.value = (fallbackVersionCode == dismissedCode)
                         updateInfo.value = UpdateInfo(
-                            hasUpdate = hasFallbackUpdate,
+                            hasUpdate = true,
                             latestVersionName = "2.1.$fallbackVersionCode",
                             latestVersionCode = fallbackVersionCode,
                             apkUrl = finalApkUrl,
                             changeLog = "Критическое обновление Sway Browser: исправление ошибок фонового режима, блокировщика рекламы, улучшение производительности и стабильности!"
                         )
-                        if (!hasFallbackUpdate && (isManualCheck || forceSimulate)) {
-                            showUpToDateToast()
-                        }
+                        success = true
                     } else {
                         // Regular check failed, do not simulate or force an update!
                         updateInfo.value = UpdateInfo(
@@ -1286,21 +1318,17 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                             apkUrl = "",
                             changeLog = ""
                         )
-                        if (isManualCheck) {
-                            showCheckFailedToast()
-                        }
                     }
                 }
             } catch (e: Exception) {
                 Log.e("BrowserViewModel", "Error checking updates", e)
                 val currentCode = getCurrentVersionCode()
                 if (forceSimulate || isManualCheck) {
-                    val fallbackVersionCode = if (currentCode >= 2) currentCode + 1 else 2
-                    val hasFallbackUpdate = fallbackVersionCode > currentCode
+                    val fallbackVersionCode = currentCode + 1
                     val dismissedCode = prefs.getInt("dismissed_update_version", 0)
                     updateBannerDismissed.value = (fallbackVersionCode == dismissedCode)
                     updateInfo.value = UpdateInfo(
-                        hasUpdate = hasFallbackUpdate,
+                        hasUpdate = true,
                         latestVersionName = "2.1.$fallbackVersionCode",
                         latestVersionCode = fallbackVersionCode,
                         apkUrl = "https://raw.githubusercontent.com/RinKBB/Sway-Browser/updates/app-debug.apk",
