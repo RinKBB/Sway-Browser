@@ -1,12 +1,35 @@
 <?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:aapt="http://schemas.android.com/aapt"
-    android:width="108dp"
-    android:height="108dp"
+    android:width="512dp"
+    android:height="512dp"
     android:viewportWidth="512"
     android:viewportHeight="512">
 
-    <!-- 1. LEFT ARC ROTATED RING PIECE WITH SHADOW AND GRADIENT -->
+    <!-- 1. BACKGROUND SQUIRCLE WITH VOLUMETRIC GRADIENT -->
+    <path
+        android:pathData="M 140,36 L 372,36 C 448,36 476,64 476,140 L 476,372 C 476,448 448,476 372,476 L 140,476 C 64,476 36,448 36,372 L 36,140 C 36,64 64,36 140,36 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="140"
+                android:startY="36"
+                android:endX="372"
+                android:endY="476"
+                android:type="linear">
+                <item
+                    android:color="#1F2C44"
+                    android:offset="0.0" />
+                <item
+                    android:color="#111B2D"
+                    android:offset="0.5" />
+                <item
+                    android:color="#0A101C"
+                    android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- 2. LEFT ARC ROTATED RING PIECE WITH SHADOW AND GRADIENT -->
     <!-- Drop Shadow for Left Arc -->
     <path
         android:pathData="M 174,124 C 105,168 79,227 79,269 C 79,311 105,370 174,414 L 191,388 C 136,352 109,303 109,269 C 109,235 136,186 191,150 Z"
@@ -35,7 +58,7 @@
         </aapt:attr>
     </path>
 
-    <!-- 2. RIGHT ARC ROTATED RING PIECE WITH SHADOW AND GRADIENT -->
+    <!-- 3. RIGHT ARC ROTATED RING PIECE WITH SHADOW AND GRADIENT -->
     <!-- Drop Shadow for Right Arc -->
     <path
         android:pathData="M 326,124 C 395,168 421,227 421,269 C 421,311 395,370 326,414 L 309,388 C 364,352 391,303 391,269 C 391,235 364,186 309,150 Z"
@@ -64,8 +87,8 @@
         </aapt:attr>
     </path>
 
-    <!-- 3. S_BOTTOM (BOTTOM HOOK OF S) - RENDERS UNDER ARROW -->
-    <!-- Shadow Cast by S_bottom -->
+    <!-- 4. S_BOTTOM (BOTTOM HOOK OF S) - RENDERS UNDER ARROW -->
+    <!-- Shadow Cast by S_bottom on squash background -->
     <path
         android:pathData="M 160,370 C 185,410 240,425 280,425 C 330,415 355,375 355,320 L 340,300 C 340,340 315,380 270,395 C 210,410 180,390 160,370 Z"
         android:fillColor="#400A101C" />
@@ -116,7 +139,7 @@
         </aapt:attr>
     </path>
 
-    <!-- 4. CHISELED DIAGONAL METALLIC ARROW (OVER S_BOTTOM, UNDER S_CENTER/S_TOP) -->
+    <!-- 5. CHISELED DIAGONAL METALLIC ARROW (OVER S_BOTTOM, UNDER S_CENTER/S_TOP) -->
     <!-- Arrow Drop Shadow -->
     <path
         android:pathData="M 118,421 L 352,128 L 335,163 L 258,274 L 131,439 Z"
@@ -168,18 +191,18 @@
         </aapt:attr>
     </path>
 
-    <!-- 5. CAST SHADOWS UNDER S_TOP AND S_CENTER ONTO THE ARROW -->
+    <!-- 6. CAST SHADOWS UNDER S_TOP AND S_CENTER ONTO THE ARROW -->
     <!-- Shadow S_top on S_center -->
     <path
         android:pathData="M 175,200 C 185,215 210,230 225,230 C 220,215 200,200 175,200 Z"
         android:fillColor="#80060B14" />
 
-    <!-- Shadow S_center on Arrow -->
+    <!-- Shadow S_center on Arrow and Background -->
     <path
         android:pathData="M 280,265 C 295,275 320,290 330,310 L 320,325 C 310,310 295,295 280,265 Z"
         android:fillColor="#B0050A14" />
 
-    <!-- 6. S_CENTER (THE MIDDLE DIAGONAL SPINE) -->
+    <!-- 7. S_CENTER (THE MIDDLE DIAGONAL SPINE) -->
     <!-- S_center Light Face -->
     <path
         android:pathData="M 185,245 C 205,253 230,261 256,268 C 280,275 305,282 320,290 L 300,310 C 280,295 255,285 230,275 C 205,265 190,255 185,245 Z">
@@ -226,7 +249,7 @@
         </aapt:attr>
     </path>
 
-    <!-- 7. S_TOP (THE TOP HOOK OF S) -->
+    <!-- 8. S_TOP (THE TOP HOOK OF S) -->
     <!-- S_top Light Face -->
     <path
         android:pathData="M 315,137 C 305,110 270,95 240,95 C 195,95 150,135 150,195 C 150,215 165,235 185,245 C 180,225 175,200 185,175 C 195,147 220,120 256,110 C 290,110 308,125 315,137 Z">

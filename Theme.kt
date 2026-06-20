@@ -1,43 +1,52 @@
 package com.example
 
-import android.os.Bundle
-import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.Surface
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.ui.Modifier
-import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.ui.BrowserScreen
-import com.example.ui.LocalAppStrings
-import com.example.ui.RuStrings
-import com.example.ui.EnStrings
-import com.example.ui.KkStrings
-import com.example.ui.theme.MyApplicationTheme
-import com.example.viewmodel.BrowserViewModel
+import android.content.Context
+import android.util.AttributeSet
+import android.view.View
+import android.webkit.WebView
 
-class MainActivity : ComponentActivity() {
-  override fun onCreate(savedInstanceState: Bundle?) {
-    super.onCreate(savedInstanceState)
-    enableEdgeToEdge()
-    setContent {
-      MyApplicationTheme {
-        Surface(modifier = Modifier.fillMaxSize()) {
-          val viewModel: BrowserViewModel = viewModel()
-          val appLang by viewModel.appLanguage.collectAsState()
-          val strings = when (appLang) {
-            "en" -> EnStrings
-            "kk" -> KkStrings
-            else -> RuStrings
-          }
-          CompositionLocalProvider(LocalAppStrings provides strings) {
-            BrowserScreen(viewModel)
-          }
+class BackgroundPlayWebView @JvmOverloads constructor(
+    context: Context,
+    attrs: AttributeSet? = null,
+    defStyleAttr: Int = 0
+) : WebView(context, attrs, defStyleAttr) {
+
+    init {
+        isFocusable = true
+        isFocusableInTouchMode = true
+        setOnTouchListener { v, event ->
+            when (event.action) {
+                android.view.MotionEvent.ACTION_DOWN,
+                android.view.MotionEvent.ACTION_UP -> {
+                    if (!v.hasFocus()) {
+                        v.requestFocus()
+                    }
+                }
+            }
+            false
         }
-      }
     }
-  }
+
+    private var keepPlayingInBackground = true
+
+    fun setKeepPlayingInBackground(keep: Boolean) {
+        keepPlayingInBackground = keep
+    }
+
+    override fun onWindowVisibilityChanged(visibility: Int) {
+        if (keepPlayingInBackground && (visibility == View.GONE || visibility == View.INVISIBLE)) {
+            // Trick WebView's internal engine to think it remains VISIBLE
+            super.onWindowVisibilityChanged(View.VISIBLE)
+        } else {
+            super.onWindowVisibilityChanged(visibility)
+        }
+    }
+
+    override fun onVisibilityChanged(changedView: View, visibility: Int) {
+        if (keepPlayingInBackground && (visibility == View.GONE || visibility == View.INVISIBLE)) {
+            super.onVisibilityChanged(changedView, View.VISIBLE)
+        } else {
+            super.onVisibilityChanged(changedView, visibility)
+        }
+    }
 }
