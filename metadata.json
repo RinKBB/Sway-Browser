@@ -1,5 +1,5 @@
 {
-  "name": "Sway-Browser",
+  "name": "Sway Browser",
   "description": "Browse websites to extract, preview, and batch download images and videos as individual files or a ZIP archive.",
   "requestFramePermissions": [],
   "majorCapabilities": [

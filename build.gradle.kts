@@ -88,20 +88,19 @@ jobs:
           cp app/build/outputs/apk/debug/app-debug.apk /tmp/sway-release/app-debug.apk
           cp update.json /tmp/sway-release/update.json
           
-          # Setup git
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          # Setup git inside the isolated release directory and push directly
+          cd /tmp/sway-release
+          git init
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
           
-          # Checkout or create updates branch
-          git checkout --orphan updates
-          git rm -rf . || true
-          git clean -fdx
+          # Read version name for the commit message
+          VERSION_NAME=$(grep "versionName =" $GITHUB_WORKSPACE/app/build.gradle.kts | head -n 1 | awk -F '"' '{print $2}')
+          if [ -z "$VERSION_NAME" ]; then VERSION_NAME="2.1.0"; fi
           
-          # Move Compiled Files back to root
-          cp /tmp/sway-release/app-debug.apk ./app-debug.apk
-          cp /tmp/sway-release/update.json ./update.json
-          
-          # Commit and Push
+          git checkout -b updates
           git add app-debug.apk update.json
           git commit -m "Auto-deploy updates: version $VERSION_NAME"
-          git push -f origin updates
+          
+          # Force push to origin updates branch securely using the repo's token
+          git push -f "https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" updates
