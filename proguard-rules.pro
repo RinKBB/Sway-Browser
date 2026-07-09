@@ -1,107 +1,21 @@
-name: Build and Auto-Deploy Sway Browser Updates
+# Add project specific ProGuard rules here.
+# You can control the set of applied configuration files using the
+# proguardFiles setting in build.gradle.
+#
+# For more details, see
+#   http://developer.android.com/guide/developing/tools/proguard.html
 
-on:
-  push:
-    branches:
-      - main
-      - master
-  workflow_dispatch:
+# If your project uses WebView with JS, uncomment the following
+# and specify the fully qualified class name to the JavaScript interface
+# class:
+#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
+#   public *;
+#}
 
-permissions:
-  contents: write
+# Uncomment this to preserve the line number information for
+# debugging stack traces.
+#-keepattributes SourceFile,LineNumberTable
 
-jobs:
-  build-and-deploy:
-    name: Build APK and Deploy Update Metadata
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout Source Code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'zulu'
-          java-version: '17'
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '9.3.1'
-          validate-wrappers: false
-
-      - name: Inject Dynamic Versioning
-        run: |
-          RUN_NUMBER=${{ github.run_number }}
-          VERSION_CODE=$((100 + RUN_NUMBER))
-          # Format version name nicely based on run number
-          VERSION_NAME="2.1.$RUN_NUMBER"
-          
-          # Replace versionCode in build.gradle.kts
-          sed -i "s/versionCode = [0-9]*/versionCode = $VERSION_CODE/g" app/build.gradle.kts
-          # Replace versionName in build.gradle.kts
-          sed -i 's/versionName = ".*"/versionName = "'"$VERSION_NAME"'"/g' app/build.gradle.kts
-          
-          echo "Successfully injected Version Code: $VERSION_CODE"
-          echo "Successfully injected Version Name: $VERSION_NAME"
-          grep -E "versionCode|versionName" app/build.gradle.kts
-
-      - name: Decode Debug Keystore
-        run: |
-          if [ -f "debug.keystore.base64" ]; then
-            base64 -d debug.keystore.base64 > debug.keystore
-            echo "Successfully decoded debug.keystore"
-          else
-            echo "debug.keystore.base64 not found, relying on default"
-          fi
-
-      - name: Build Debug APK
-        run: gradle assembleDebug
-
-      - name: Generate update.json
-        run: |
-          VERSION_NAME=$(grep "versionName =" app/build.gradle.kts | head -n 1 | awk -F '"' '{print $2}')
-          VERSION_CODE=$(grep "versionCode =" app/build.gradle.kts | head -n 1 | tr -d -c '0-9')
-          
-          # Use fallbacks if grep failed
-          if [ -z "$VERSION_NAME" ]; then VERSION_NAME="2.1.0"; fi
-          if [ -z "$VERSION_CODE" ]; then VERSION_CODE="101"; fi
-          
-          cat <<EOF > update.json
-          {
-            "versionCode": $VERSION_CODE,
-            "versionName": "$VERSION_NAME",
-            "apkUrl": "https://raw.githubusercontent.com/${{ github.repository }}/updates/app-debug.apk",
-            "changeLog": "Критическое обновление Sway Browser: исправление ошибок фонового режима, блокировщика рекламы, улучшение производительности и стабильности!"
-          }
-          EOF
-          echo "Generated update.json successfully:"
-          cat update.json
-
-      - name: Deploy to updates branch
-        run: |
-          # Keep compiled products in an isolated temp directory
-          mkdir -p /tmp/sway-release
-          cp app/build/outputs/apk/debug/app-debug.apk /tmp/sway-release/app-debug.apk
-          cp update.json /tmp/sway-release/update.json
-          
-          # Setup git
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          
-          # Checkout or create updates branch
-          git checkout --orphan updates
-          git rm -rf . || true
-          git clean -fdx
-          
-          # Move Compiled Files back to root
-          cp /tmp/sway-release/app-debug.apk ./app-debug.apk
-          cp /tmp/sway-release/update.json ./update.json
-          
-          # Commit and Push
-          git add app-debug.apk update.json
-          git commit -m "Auto-deploy updates: version $VERSION_NAME"
-          git push -f origin updates
+# If you keep the line number information, uncomment this to
+# hide the original source file name.
+#-renamesourcefileattribute SourceFile
